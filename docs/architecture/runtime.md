@@ -1,6 +1,6 @@
 # 运行时设计
 
-> 状态：现行（v2，2026-11-08）。名词定义见 [domain-model.md](domain-model.md)。
+> 状态：现行（v3，2026-11-08）。名词定义见 [domain-model.md](domain-model.md)；执行者、模型、位置的细节见 [execution.md](execution.md)。
 
 ## 1. Engine：单写者与先存后做
 
@@ -9,8 +9,9 @@
 
 | effect | 并发 | 失败处理 |
 |---|---|---|
-| `attempt.prepare`（建 worktree） | 每仓库 1（路径锁） | 退避 2s → 60s；3 次失败转 Question |
-| `run.launch`（建 worker 会话） | 占 WorkerSlot | 瞬时失败重试 3 次 |
+| `checkout.prepare`（建 worktree / 远端检出 / install） | 每位置每仓库 1（路径锁） | 退避 2s → 60s；3 次失败转 Question |
+| `run.launch`（起执行者会话） | 占 WorkerSlot（按位置分别计数） | 瞬时失败重试 3 次 |
+| `checkout.handoff`（WIP 提交、push、目标位置检出） | 每 Attempt 1 | 失败保留源 Checkout 并转 Question |
 | `run.deliver`（投递消息） | 4；同会话保序 | 退避 2s → 60s；持续失败标 `undelivered` |
 | `validate`（跑验证命令） | 每项目 2 | 不重试，结果即证据 |
 | `github.sync` | 1 | 带 ETag，退避 |
@@ -21,7 +22,7 @@
 
 ## 2. 协调者
 
-协调者是一个普通 DSH 会话，使用专用 preset `dsh-projects-coordinator`。
+协调者是一个普通 DSH 会话（始终是 DSH 原生、始终在本机），使用专用 preset `dsh-projects-coordinator`；模型可在会话头切换。
 
 **工具集（完整清单，没有其他工具）**
 
@@ -29,7 +30,10 @@
 |---|---|
 | `project_status` | 推导后的看板摘要：每个 Task 一行（id、标题、显示状态、标记、一行摘要） |
 | `task_create` / `task_update` / `task_link` | 拆任务、改描述、设依赖与父子 |
-| `task_start` | 申请启动（Engine 决定排队还是立即启动） |
+| `task_start(task, spec?)` | 申请启动，可带推荐的 RunSpec（执行者、模型、位置）；Engine 决定排队还是立即启动 |
+| `task_best_of(task, specs[])` | 同一任务并行 2–4 个候选 |
+| `task_handoff(task, location? , executor?)` | 移到云端 / 拉回本地 / 换执行者 |
+| `executors_list` / `locations_list` | 可用执行者、模型目录、位置健康状态（推荐 RunSpec 用） |
 | `run_send` | 给某个 Task 的 worker 发消息（`queue` / `steer`） |
 | `run_stop` / `task_retry` | 停止；用同一或另一 profile 重试 |
 | `task_accept` / `task_cancel` | 仅在人明确同意时调用；accept 需带后继 |
@@ -46,16 +50,17 @@
 ## 3. Worker 与 worktree
 
 **启动流程**
-1. 认领 `(project, task)` → 预留 WorkerSlot（默认 3，范围 1–16；人类跟进可超额 1 槽；唤醒优先于新启动）。
-2. 启动摘要（UI）列出：Task、仓库、基线分支、worktree 路径、环境、模型、refs 新鲜度；refs 过期先提示刷新，环境不可用则阻断。
-3. `git` 在路径锁内创建 `<dataDir>/worktrees/<project>/<attempt>`，分支前缀由环境决定：本机 `agent/<task-id 小写>-<slug>`（如 `agent/you-4-staging-verify`），远程 sandbox `sandbox/<task-id 小写>-<slug>`；基于项目主仓库默认分支或用户选择的 ref。
-4. `executor-dsh` 用 `sessionController.create({ cwd })` 创建 worker 会话，**不调用** `workspaceRegistry.create`，避免左栏为每个 worktree 新增顶层工作区（待 M0 spike 验证，见 [dsh-integration.md](dsh-integration.md)）。
-5. 首条消息包含：Task 原文（不经协调者转述）、worktree 说明（原始仓库、worktree 根、分支、「所有改动只在 worktree 内」）、`INDEX.md`、相关 runbook 路径。
-6. 环境变量白名单：显式裁剪父进程凭据，只注入该项目声明的变量名。
+1. 认领 `(project, task)` → 解析 RunSpec（任务覆盖 > 负责人 > 项目角色默认 > 执行者默认）→ 预留 WorkerSlot（默认 3，范围 1–16；人类跟进可超额 1 槽；唤醒优先于新启动）。
+2. 启动摘要（UI）列出：Task、仓库、基线分支、**执行者 · 模型 · 位置**、计费来源、检出路径、refs 新鲜度；refs 过期先提示刷新；位置不可用、执行者未安装或未登录则阻断并给出修复入口。
+3. 以下 3–5 步描述本地位置 + DSH 执行者；其他组合见 [execution.md](execution.md) §3–§4。
+3'. `git` 在路径锁内创建 `<dataDir>/worktrees/<project>/<attempt>`，分支前缀由环境决定：本机 `agent/<task-id 小写>-<slug>`（如 `agent/you-4-staging-verify`），远程 sandbox `sandbox/<task-id 小写>-<slug>`；基于项目主仓库默认分支或用户选择的 ref。
+4'. `executor-host`（DSH 原生驱动）用 `sessionController.create({ cwd })` 创建 worker 会话，**不调用** `workspaceRegistry.create`，避免左栏为每个 worktree 新增顶层工作区（待 M0 spike 验证，见 [dsh-integration.md](dsh-integration.md)）。
+5'. 首条消息包含：Task 原文（不经协调者转述）、worktree 说明（原始仓库、worktree 根、分支、「所有改动只在 worktree 内」）、`INDEX.md`、相关 runbook 路径。
+6'. 环境变量白名单：显式裁剪父进程凭据，只注入该项目声明的变量名。
 
 **结束与验证**
-- worker 调 `task_report(state, summary)` 声明 `done | blocked | failed`。
-- `done` → 入队 `validate`：跑项目设置里的 `validate` 命令（如 `pnpm test`），结果写 Evidence；退出码 0 只是必要条件，输出需匹配项目配置的通过判据（默认：退出码 0 且无失败用例计数）。
+- worker 调 `task_report(state, summary)` 声明 `done | blocked | failed`（所有执行者经 projects-mcp 拿到同一工具）。
+- `done` → 入队 `validate`：在运行所在位置跑 `.dsh/environment.json` 或项目设置里的 `validate` 命令（如 `pnpm test`），结果写 Evidence；退出码 0 只是必要条件，输出需匹配项目配置的通过判据（默认：退出码 0 且无失败用例计数）。
 - 结果以合成消息回报协调者。
 
 **回收**
@@ -102,22 +107,22 @@
 4. `context/` 是本地 git 仓库，每次写入一个带 Task / Run id 的 commit，Library 可看 diff、可回滚。
 5. **SQLite 的 `context_item` 是状态真相，Markdown 是正文**；状态不写在 Markdown 里。
 
-## 7. 执行环境
+## 7. 执行者、模型与位置
 
-- `Environment` 是 executor 的目标：`local_worktree`（默认）与 `remote_sandbox`（预留）。
-- 健康检查是 executor 适配器的 `availability()`；结果与耗时写入 `environment.last_check_json`，UI 显示历史时间线。
-- 自动重试：环境配置 `retryPolicy{attempts, baseDelayMs}`；不可用时阻断启动，不静默换环境。
-- 默认环境：项目设置 > 用户记住的上次选择 > `local_worktree`。
+见 [execution.md](execution.md)：RunSpec、两种传输（dsh-native / acp）、执行者能力降级、位置提供者、环境规格、本地 ⇄ 云端交接、best-of-N、projects-mcp、凭据。
+
+位置的健康检查（原型中的环境检测、历史、自动重试）是 `LocationProvider.health()`；不可用时阻断启动，不静默换位置。默认位置：任务覆盖 > 负责人默认 > 项目默认 > `local`。
 
 ## 8. 生命周期：Pause / Archive / Delete
 
 | 操作 | 效果 |
 |---|---|
-| Pause | 撤销排队中的续跑消息，冻结新启动与 GitHub 轮询；正在执行的 step 跑完为止（不硬杀）；顶部显示 Paused 横幅 |
+| Pause | 撤销排队中的续跑消息，冻结新启动与 GitHub 轮询；正在执行的 step 跑完为止（不硬杀）；云端 Checkout 进入暂停（沙箱 pause / 容器 stop）以免计费；顶部显示 Paused 横幅 |
 | Archive | 停止所有后台活动，从左栏移入归档视图；可恢复 |
-| Delete | 二次确认后删除 SQLite 记录、`context/`、受管 worktree；保留远端分支与 PR；写一条最终审计到全局日志 |
+| Delete | 二次确认后删除 SQLite 记录、`context/`、所有位置上的受管检出（含云端沙箱）；保留远端分支与 PR；写一条最终审计到全局日志 |
 
 ## 9. 预算与并发
 
 - 项目设置：并发上限（默认 3）、每日 token 预算（默认不限）。超预算只排队不拒绝，并在协调者摘要中提示。
 - 每个 Run 的模型请求输出上限沿用 DSH preset 配置。
+- 用量按 Run 记录（执行者提供时）；本机订阅登录的运行只记 token 不估成本；云端位置另记算力时长。

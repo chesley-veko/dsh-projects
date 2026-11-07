@@ -1,6 +1,6 @@
 # DSH 宿主集成
 
-> 状态：现行（2026-11-08）。核查版本：`deepseek-harness@fcc0ad46`（DH）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
+> 状态：现行（v3，2026-11-08）。执行层相关的 DSH 能力详见 [research/dsh-capabilities.md](../research/dsh-capabilities.md)。核查版本：`deepseek-harness@fcc0ad46`（DH）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
 
 ## 1. 交付形态
 
@@ -63,3 +63,20 @@
 2. 若 (1) 不理想，备选：`workspaceRegistry.create` 后立即 `workspaceRegistry.delete(id)`（只删登记，`index.ts:302-312`）。
 3. `INDEX.md` 注入点：首条消息 vs `agent/pre-step`；测量后者的每步开销。
 4. 协调者 preset 能否完全移除内置文件 / shell 工具。
+
+## 6. 执行层可复用的 DSH 件（第三轮核查）
+
+| 能力 | DSH 件 | 用法 / 限制 |
+|---|---|---|
+| 本地起 DSH worker 并指定 preset、模型、权限 | `experimental/webhook/src/session.ts:100-135` 的建会话路径；`sessionController.create`；`agentOptions` | executor-host 的 dsh-native 驱动照此实现 |
+| 运行中切模型 | `session-controller/src/commands.ts:166`、`core/agent/src/model-selection.ts:157` | 记为 `run_event` |
+| 远端 DSH 执行者 | `packages/acp/acp`（`dsh --profile acp`：new / list / resume / close / `set_config_option{model, reasoning_effort}`） | 不支持 `session/load`、modes、plans、client fs / terminal |
+| 外部 agent 配置格式 | `packages/subagent/subagent-acp`（`command / args / env / permission`） | 只借配置格式；运行用自建 ACP client |
+| 模型目录 | `llm-pi-ai`（40+ provider、自定义 OpenAI / Anthropic 网关） | DSH 执行者的目录来源 |
+| worktree | `experimental/worktree`（create / restore，`.agents/worktrees`） | 无清理、无 fetch、不带未提交改动；自建回收与关联 |
+| PR | `forge`、`forge-github`、`client-ui-forge` | PR 绑定、状态轮询、diff 视图；只支持 GitHub CLI |
+| 凭据 | `credentials` | API Key 存取；按次注入 |
+| 权限 | `sandbox-policy`、`permission-presets`、`user-approval`、`auto-review` | DSH 原生运行直接用；外部执行者映射到 RunSpec.permission |
+| 远程观察 | Host 远程访问、Liveshare | 看 / 接管 DSH 运行 |
+
+**不用于项目任务**：`subagent-acp`、`subagent-claude-code`、`subagent-codex`、`subagent-oar`（一次性、丢过程、自动应答权限、模型固定）；SSH provider 族（部署级替换，不能按任务选）。

@@ -1,5 +1,5 @@
 # 0004 worktree 可丢，分支必保
-- 状态：Accepted
+- 状态：Accepted（检出模型由 [0010](0010-branch-handoff.md) 修订：回收规则对 Checkout 生效）
 - 日期：2026-11-08
 
 ## 背景

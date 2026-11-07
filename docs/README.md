@@ -4,8 +4,10 @@
 
 | 文档 | 内容 |
 |---|---|
+| [product/intent.md](product/intent.md) | 产品意图：对标 Cursor Projects、差异化、核心体验、原则、范围外、待拍板决策 |
 | [architecture/overview.md](architecture/overview.md) | 问题、设计原则、分层、两条授权路径、任务生命周期 |
 | [architecture/domain-model.md](architecture/domain-model.md) | 对象与不变量、显示状态推导、UI 操作到命令的映射、Mandate、SQLite Schema |
+| [architecture/execution.md](architecture/execution.md) | 执行者 × 模型 × 位置：RunSpec、DSH 原生 / ACP 两种传输、能力降级、位置提供者、环境规格、本地 ⇄ 云端交接、best-of-N、projects-mcp、凭据 |
 | [architecture/runtime.md](architecture/runtime.md) | Engine 与 effect、协调者工具集、worker 与 worktree、Question Tray、Driver、Library 与记忆、环境、生命周期、预算 |
 | [architecture/dsh-integration.md](architecture/dsh-integration.md) | 已核实的 DSH 客户端 / 服务端扩展点、陷阱、从 dsh-superagent 复用什么、M0 前 spike |
 | [architecture/roadmap.md](architecture/roadmap.md) | Spike、M0–M4 与验收、度量 |
@@ -23,6 +25,8 @@
 | [research/cursor-findings.md](research/cursor-findings.md) | Cursor Projects 客户端源码细节：外观、状态、Files Changed |
 | [research/loopx.md](research/loopx.md) | LoopX 深度拆解：域模型、存储、控制循环、DSH 集成、可借鉴与不该照搬 |
 | [research/oss-survey.md](research/oss-survey.md) | Vibe Kanban、Agent Orchestrator、opencode、OpenHands、Backlog.md、Task Master、claude-squad、crystal 对比 |
+| [research/dsh-capabilities.md](research/dsh-capabilities.md) | DSH 现有能力审计：ACP、SSH、沙箱、子代理、模型、worktree、forge |
+| [research/external-agents-cloud.md](research/external-agents-cloud.md) | Cursor Projects 云 / 本地、Claude Code、Codex、ACP、多执行器编排器、云端底座、凭据条款 |
 | [research/dsh-source-verification.md](research/dsh-source-verification.md) | 旧设计中关于 DSH / dsh-superagent 的说法逐条源码核查 |
 
 ## 约定

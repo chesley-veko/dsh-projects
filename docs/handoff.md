@@ -1,0 +1,103 @@
+# 交接摘要：在 DeepSeek Harness 上实现「Projects」
+
+更新于 2026-11-04（第二轮深度拆解定稿）。基于 Cursor 3.19–3.27 Release Notes、Claude Code Projects + Agent View 完整文档、`dsh-superagent-prototype` 源码以及本机 DSH `0.2.1-alpha.2`（`app.asar`）内部包反编译核实。
+
+## 0. 一句话结论
+
+以 **DSH Bundle 插件**形态（0 行宿主源码侵入），将 **Cursor Projects 的三栏交互工作台**（左栏扁平 `Projects` + 中栏常驻协调者对话 + 右栏 `List | Board | Library`）、**Claude Code 的三层上下文隔离与双速状态摘要**、装进 **DeepSeek 官方 `dsh-superagent` 的事务与授权引擎**。
+
+---
+
+## 1. 核心修正（本轮推翻或补齐的关键事实）
+
+### 1.1 `dsh-superagent` 不能「中间工作层一行不碰」——必须先解开 3 个源码级死锁
+
+1. **人机直接对话死锁**：
+   - 事实：`src/app/tools/main.ts:47` 的 `orchestrator_route` 只接受已落盘的 `trigger_id`（`src/core/evals.ts:132`）。人在 DSH 界面直接向 `orchestrator` 会话发消息走的是 `user/message` 事件（`src/app/sessions.ts:114`），不经过 `Source`，库里没有 `Trigger`，协调者无法创建 Ticket。
+   - 解法：新增内置 `project` SourceKind，在 `Sessions` 监听协调者会话的 `user/message`（`source.kind === 'user'`），自动转为 `source = 'project', strength = 'explicit'` 的一等 `Trigger` 写入 `Engine.receive`，天然复用全套 `Mandate` 授权与审计链。
+2. **一拆多幂等死锁**：
+   - 事实：`docs/001-domain.md:28` 与 `src/core/evals.ts:137,311` 锁死了 `1 Trigger = 1 Ticket`（`ticketId = key('ticket', evaluation.id)`，二次 `accept` 同一个 `trigger_id` 直接返回已有 Ticket）。
+   - 解法：`Evals.decide` 幂等键改为 `(triggerId, taskKey)`，`ticketId = key('ticket', evaluation.id, taskKey)`，支持协调者一次调用把一个需求拆成多个并行 Ticket。
+3. **DSH 左栏「工作区」爆炸死锁**：
+   - 事实：DSH 原生 `@deepseek-ai/dsh-workspace` 强制 `1 realpath 目录 = 1 顶层 Workspace`。`src/app/sessions.ts:141` 为每个 Ticket 的独立 worktree 目录调用 `workspaceRegistry.create(cwd)`，跑 20 个 Ticket 会在左栏刷出 20 个顶层文件夹。
+   - 解法：Worker 会话创建后立即调用 `ctx.workspaceRegistry.archiveSession(workerSessionId)` 将其从原生「工作区」列表归档隐藏（仍正常后台运行，且可通过 `ctx.uiWorkspace.openSession` 在右栏打开）。
+
+### 1.2 域模型从三层升级为四层：`Task (YOU-1)` 与 `Worker Session` 解耦
+
+Cursor 3.26–3.27 将 Project Notes 升级为独立 Task Tracker。右栏的 `YOU-1` 是 **Task（计划项）**，而不是 **Worker Session**：
+- `Project（项目容器）` ──1:N──> `Task（YOU-1，支持父子级与 Queued 排队）` ──0..N──> `Ticket / Assignment（实际干活的 worktree 会话）` ──0..N──> `PR & Artifact（提交、截图、录屏）`
+- 解耦收益：支持先列 8 个 Backlog Task 只跑前 2 个；支持父任务自动聚合子任务状态；支持 Worker 报错换人或跨 Task 复用同一热环境 Worker；支持单 Task 挂多个跨仓 PR（超 1 个折叠为 `[N PRs]` 胶囊）。
+
+---
+
+## 2. 三栏交互与 DSH 客户端插槽映射
+
+不改 `app.asar` 一行代码，全部通过客户端插件 `src/client/index.tsx` 注入：
+
+| 区域 | 交互形态（对齐 Cursor 3.27 真实界面） | DSH 宿主插槽 / 服务 API |
+|---|---|---|
+| **左栏 Projects 区** | 位于 `··· 更多` 下方、`工作区` 上方；扁平列表（图标 + 名称 + 活跃时间/未读蓝点），不展开子任务树 | 锚定在 `.kB3qhq_regionArea` 顶部，跟随 `.kB3qhq_wide` 折叠动画 |
+| **普通会话收编** | 在下方 `工作区` 右键任意普通会话 → `加入项目 (Add to Project)`，协调者读取历史并生成待办建议 | `ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'add-to-project' })` |
+| **中栏协调者对话** | 点击左栏项目即调用 `openSession(coordinatorSessionId)`；运行中发送按钮保持 `Send` 不变 `Stop`；内部回报折叠为单行 `Update from YOU-1` | `main.conversation` + `ctx.uiWorkspace.openSession` |
+| **输入框上方胶囊与托盘** | 常驻 `[Questions · N]`、`[Agents · N]`、`[Listening · N]` 胶囊；子代理提问时浮出 **Question Tray** 直接在主窗口点选/打字回答 | `conversation.input.overlay` + `conversation.composer.dock` |
+| **右栏 Project 面板** | 顶栏切换 `List \| Board \| Library`；空白新项目默认收起，首个 Task 创建时自动滑出并固定第一顺位 | `ctx.sidebarRightTabs.register({ id: 'dsh-projects/project', kind: 'project' })` |
+
+---
+
+## 3. 六大交互细节契约（防返工清单）
+
+1. **两个入口**：极简新建弹窗（Icon + Name + Goal + Repos，允许无 Repo 纯调研启动） + 散装会话右键 `Add to Project` 中途收编；焦点在 Project 时点全局「新会话」不继承 Project 环境（Cursor 3.27 修复项）。
+2. **协调者防呆**：协调者运行期间发送按钮保持 `Send`（走 `steer` 插话），绝不变成 `Stop`；收到消息先秒回一句话确认再调工具；仅当协调者正式对人发言时才标未读蓝点。
+3. **主窗口 Question Tray 直答**：修补 Claude Code 必须进子线程审批的痛点，后台 Worker 触发 `human_action` 时直接在主对话输入框上方弹出黄色托盘，一键回答直达该 Worker。
+4. **`@YOU-1` 与 `#PR` 引用**：主对话输入 `@` 列出项目 Tasks（按状态分组），输入 `#` 检索关联 PR，后端解析为精确 `ticketId` / `threadKey`。
+5. **右栏 6 态收敛与 15s 摘要**：`Waiting on you` → `For Review` → `In Progress` → `Queued` → `Idle` → `Done`；运行中每 15s 取最新工具动作刷单行摘要（0 模型请求），Turn 结束写结论摘要；单击行弹 Peek 抽屉，双击分屏打开 Worker 会话。
+6. **Pause / Archive / True Delete 三态生命周期**：补齐 Cursor 缺乏真删除的短板——`Pause` 冻结槽位与轮询，`Archive` 停后台并隐藏，`Delete` 彻底清除 SQLite 记录、记忆库与本地受管 worktree（保留已推向 GitHub 的分支和 PR）。
+
+---
+
+## 4. `Library` 与三层上下文治理（解决记忆污染）
+
+| 层级 | 路径 | 谁读 | 谁写与晋升机制 |
+|---|---|---|---|
+| **1. 仓库规范** | 各仓根 `AGENTS.md` / `CLAUDE.md` | 该仓 Worker | 人维护，随代码仓 Git 走 |
+| **2. 项目常驻索引** | `context/INDEX.md`（≤1200 tokens） | 协调者 + 所有 Worker | 人与协调者写；只放北极星目标、仓库表、硬约束、文件检索指针 |
+| **3. 决策与 Spec** | `context/decisions/*.md`、`specs/*.md` | 协调者 + 关联 Worker | 协调者起草，对话即批准（`ratified`）；旧决策被替代时标 `superseded` |
+| **4. 操作手册** | `context/runbooks/*.md` | **仅 Worker 读**（防协调者自己排障阻塞） | Worker 调 `propose` 写入；随 Ticket 完成/PR 合入自动转正；后续踩坑可调 `dispute` 挂起进右栏待办 |
+| **5. 工件与资料** | `context/artifacts/*`、`uploads/*` | 人在右栏预览 + Agent 引用 | 人拖拽上传，或 Worker 交付截图/录屏/报告 |
+
+- **Git 化存储**：`<stateDir>/projects/<id>/context/` 初始化为独立本地 Git 仓库，每次写入自动 commit，天然支持 diff、回滚与未来云端 `git push/pull` 同步。
+
+---
+
+## 5. 四阶段路线（Milestones）
+
+- **M1（2–3 天）：底座解锁** —— 内建 `project` Source、放开 `1 Trigger → N Tasks` 幂等键、GitHub 线程键加 `owner/repo`、Worker 会话自动 `archiveSession` 隐藏左栏噪音。
+- **M2（4–5 天）：三栏工作台 UI** —— 左栏 `Projects` 列表与新建弹窗、右栏 `Project (List | Board)` 面板、6 态分组、`YOU-1` 编号与 PR 徽章、Peek 抽屉。
+- **M3（4–5 天）：Library 与记忆层** —— Git 化 `context/` 目录、角色分流注入、Ticket 完结巩固钩子、`dispute` 反驳通道与 `Library` 文件视图。
+- **M4（3–4 天）：精修交互闭环** —— 输入框上方 `Questions / Agents / Listening` 动态胶囊与直答托盘、`@YOU-1` 引用、散装会话右键 `Add to Project`、`Pause / Archive / Delete`。
+
+---
+
+## 6. 产出物清单
+
+- [`prototype/index.html`](../prototype/index.html) —— 交互原型（对齐 `dsh-claude-style` 真实色板，双色卡，可点）。
+- [`docs/dsh-project-layer.html`](dsh-project-layer.html) —— 架构与交互设计规范（三方对比、四层域模型、6 大交互契约、SQLite Schema、改造落点）。
+- [`docs/projects-teardown.md`](projects-teardown.md) —— 调研底稿与论文索引。
+- [`docs/handoff.md`](handoff.md) —— 本交接摘要。
+- [`archive/prototype-v1.html`](../archive/prototype-v1.html) —— 第一版原型，已被 `prototype/index.html` 取代，仅留档。
+
+## 7. 仓库结构
+
+```
+dsh-projects/
+  README.md
+  prototype/
+    index.html          交互原型（浏览器直接打开）
+    fonts/              Inter / Noto Serif / JetBrains Mono（OFL）
+  docs/
+    handoff.md          本文件
+    dsh-project-layer.html
+    projects-teardown.md
+  archive/
+    prototype-v1.html   旧原型留档
+```

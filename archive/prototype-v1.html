@@ -1,0 +1,2563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Projects · 交互原型</title>
+<style>
+  :root {
+    --bg-side: #15171c;
+    --bg-center: #17191e;
+    --bg-right: #15171c;
+    --bg-card: #1c1f26;
+    --bg-card-2: #20242c;
+    --bg-hover: #22262f;
+    --bg-active: #272c36;
+    --line: #262a32;
+    --line-soft: #20242b;
+    --line-strong: #313742;
+
+    --tx: #e6e9ee;
+    --tx-2: #a6b0bc;
+    --tx-3: #6f7885;
+
+    --blue: #4b93f5;
+    --blue-dim: rgba(75, 147, 245, 0.14);
+    --blue-line: rgba(75, 147, 245, 0.35);
+
+    --green: #3fb950;
+    --green-dim: rgba(63, 185, 80, 0.13);
+    --green-line: rgba(63, 185, 80, 0.32);
+
+    --amber: #e3b341;
+    --amber-dim: rgba(227, 179, 65, 0.12);
+    --amber-line: rgba(227, 179, 65, 0.34);
+
+    --purple: #a371f7;
+    --purple-dim: rgba(163, 113, 247, 0.13);
+    --purple-line: rgba(163, 113, 247, 0.32);
+
+    --red: #f85149;
+    --red-dim: rgba(248, 81, 73, 0.12);
+    --red-line: rgba(248, 81, 73, 0.32);
+
+    --r-sm: 6px;
+    --r-md: 9px;
+    --r-lg: 12px;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #0e1014;
+    color: var(--tx);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  input, textarea { font: inherit; color: inherit; background: none; border: 0; outline: none; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2b3038; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a414c; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============ 外壳 ============ */
+  .shell {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .notice-bar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 16px;
+    background: #1a1d24;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--tx-2);
+  }
+  .notice-bar b { color: var(--tx); font-weight: 600; }
+  .notice-bar .kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: #262b34;
+    border: 1px solid #333a45;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--tx-2);
+  }
+  .notice-bar .spacer { flex: 1; }
+  .notice-bar .dismiss {
+    color: var(--tx-3);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .notice-bar .dismiss:hover { background: var(--bg-hover); color: var(--tx); }
+  .notice-bar .pill-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--blue);
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 3px rgba(75,147,245,.16);
+  }
+  .notice-bar .nb-sep { color: #3d4550; }
+  .notice-bar span:not(.kbd):not(.nb-sep):not(.pill-dot):not(.spacer) { white-space: nowrap; }
+
+  .app {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr) 408px;
+    background: var(--bg-center);
+  }
+
+  /* ============ 左栏 ============ */
+  .side {
+    background: var(--bg-side);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    user-select: none;
+  }
+
+  .side-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 14px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .side-brand .mark { color: #6cb6ff; font-size: 15px; }
+  .side-brand .tag {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    background: #2b5fd9;
+    color: #fff;
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+
+  .side-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 8px 12px;
+  }
+
+  .side-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    color: var(--tx-2);
+    cursor: pointer;
+    font-size: 12.5px;
+    min-height: 30px;
+  }
+  .side-row:hover { background: var(--bg-hover); color: var(--tx); }
+  .side-row .ico { width: 15px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; opacity: 0.85; }
+  .side-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-row .meta { flex: 0 0 auto; font-size: 11px; color: var(--tx-3); font-variant-numeric: tabular-nums; }
+
+  .side-sec {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 14px 8px 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #626b78;
+  }
+  .side-sec .acts { display: flex; align-items: center; gap: 2px; }
+  .side-sec .iconbtn {
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    color: #7b8492;
+  }
+  .side-sec .iconbtn:hover { background: var(--bg-hover); color: var(--tx); }
+
+  .proj-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    min-height: 32px;
+    position: relative;
+  }
+  .proj-row:hover { background: var(--bg-hover); }
+  .proj-row.active { background: var(--bg-active); }
+  .proj-row.active::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 7px; bottom: 7px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--blue);
+  }
+  .proj-row .avatar {
+    width: 19px; height: 19px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px;
+    flex: 0 0 auto;
+  }
+  .avatar.tone-blue { background: rgba(75,147,245,.2); color: #79b8ff; }
+  .avatar.tone-green { background: rgba(63,185,80,.18); color: #56d364; }
+  .avatar.tone-pink { background: rgba(219,97,162,.18); color: #f778ba; }
+  .avatar.tone-amber { background: rgba(227,179,65,.18); color: #e3b341; }
+  .avatar.tone-purple { background: rgba(163,113,247,.18); color: #c297ff; }
+
+  .proj-row .pname {
+    flex: 1; min-width: 0;
+    font-size: 12.5px;
+    color: var(--tx-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .proj-row.active .pname { color: var(--tx); font-weight: 550; }
+  .proj-row .ptime { font-size: 11px; color: var(--tx-3); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  .proj-row .more {
+    position: absolute;
+    right: 4px;
+    width: 20px; height: 20px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--tx-2);
+    background: var(--bg-hover);
+  }
+  .proj-row:hover .more { display: inline-flex; }
+  .proj-row:hover .ptime { display: none; }
+  .proj-row .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--blue);
+    flex: 0 0 auto;
+  }
+
+  .side-foot {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line-soft);
+    padding: 8px;
+  }
+
+  /* ============ 中栏 ============ */
+  .center {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--bg-center);
+  }
+
+  .center-head {
+    flex: 0 0 auto;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .center-head .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg-card-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 4px 10px;
+    font-size: 12.5px;
+    font-weight: 550;
+    max-width: 260px;
+  }
+  .center-head .chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .center-head .addbtn {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--r-sm);
+    color: var(--tx-3);
+  }
+  .center-head .addbtn:hover { background: var(--bg-hover); color: var(--tx); }
+  .center-head .spacer { flex: 1; }
+  .center-head .goal {
+    font-size: 11.5px;
+    color: var(--tx-3);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stream {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 24px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    max-width: min(560px, 86%);
+    background: #262b35;
+    border: 1px solid #303743;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #eef1f6;
+  }
+  .msg-user .t { font-size: 10.5px; color: #7d8794; margin-top: 5px; text-align: right; }
+
+  .msg-relay {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: #79828f;
+    padding: 2px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .msg-relay:hover { background: var(--bg-hover); color: var(--tx-2); }
+  .msg-relay .ln { width: 28px; height: 1px; background: #2b303a; }
+
+  .msg-agent {
+    max-width: min(680px, 94%);
+    font-size: 13.2px;
+    line-height: 1.66;
+    color: #dde2e9;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg-agent p { margin: 0; }
+
+  .art-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+  }
+  .art-card .lhs { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .art-thumb {
+    width: 38px; height: 38px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(135deg, #2a3038, #20252d);
+    display: grid; place-items: center;
+    font-size: 12px;
+    color: #c9d1d9;
+    flex: 0 0 auto;
+    border: 1px solid #333a45;
+  }
+  .art-card .nm { font-size: 12.5px; font-weight: 550; color: var(--tx); }
+  .art-card .sub { font-size: 11px; color: var(--tx-3); margin-top: 1px; }
+  .art-play {
+    flex: 0 0 auto;
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: #2a303a;
+    border: 1px solid #39414d;
+    color: var(--tx-2);
+  }
+  .art-play:hover { background: #333b46; color: var(--tx); }
+
+  code.inline {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: #232832;
+    border: 1px solid #2f3742;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #9cd1ff;
+    overflow-wrap: anywhere;
+  }
+
+  .ref-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--blue-dim);
+    border: 1px solid var(--blue-line);
+    color: #79b8ff;
+    border-radius: 4px;
+    padding: 1px 6px;
+    vertical-align: 1px;
+  }
+
+  .msg-system {
+    align-self: center;
+    font-size: 11.5px;
+    color: var(--tx-3);
+    background: #1c2028;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+
+  .typing {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .typing i {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #6f7885;
+    animation: blink 1.2s infinite ease-in-out;
+  }
+  .typing i:nth-child(2) { animation-delay: 0.15s; }
+  .typing i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes blink {
+    0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-2px); }
+  }
+
+  /* 输入区 */
+  .composer-wrap {
+    flex: 0 0 auto;
+    padding: 8px 24px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tray {
+    border: 1px solid var(--amber-line);
+    background: linear-gradient(180deg, #26200f, #221d12);
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+    animation: trayIn 160ms ease;
+  }
+  @keyframes trayIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .tray-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+  }
+  .tray-head .who {
+    font-size: 11.5px;
+    font-weight: 650;
+    color: var(--amber);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .tray-head .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tray-head .fold { font-size: 11px; color: #9b8452; flex: 0 0 auto; }
+  .tray-head .fold:hover { color: var(--amber); }
+  .tray-q { font-size: 12.8px; color: #f0f3f8; line-height: 1.6; margin-bottom: 9px; }
+  .tray-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tray-opt {
+    font-size: 11.8px;
+    padding: 5px 10px;
+    border-radius: var(--r-sm);
+    background: #2e2718;
+    border: 1px solid #4a3d22;
+    color: #f0d68f;
+    text-align: left;
+  }
+  .tray-opt:hover { background: #3a311d; border-color: #6b5629; }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #1e222a;
+    border: 1px solid #2c323c;
+    color: #a9b2bd;
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+  .pill:hover { background: #262b34; color: var(--tx); }
+  .pill.warn { background: var(--amber-dim); border-color: var(--amber-line); color: var(--amber); }
+  .pill.warn:hover { background: rgba(227,179,65,.2); }
+  .pill .num { font-variant-numeric: tabular-nums; }
+
+  .composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid #2d333d;
+    border-radius: var(--r-lg);
+    padding: 9px 10px 9px 12px;
+    transition: border-color 140ms ease;
+  }
+  .composer:focus-within { border-color: #3d4653; }
+  .composer .plus {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--r-sm);
+    color: var(--tx-3);
+    flex: 0 0 auto;
+  }
+  .composer .plus:hover { background: var(--bg-hover); color: var(--tx); }
+  .composer textarea {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    max-height: 132px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--tx);
+    padding: 4px 0;
+  }
+  .composer textarea::placeholder { color: #5e6773; }
+  .composer .rhs { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .composer .model { font-size: 11.5px; color: var(--tx-3); white-space: nowrap; }
+  .send-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--blue);
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .send-btn:hover { background: #5b9ef7; }
+  .send-btn:disabled { background: #2b3441; color: #6b7684; cursor: default; }
+
+  .env-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11px;
+    color: #5e6773;
+    padding: 0 4px;
+  }
+  .env-row .envsel { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .env-row .envsel:hover { color: var(--tx-2); }
+
+  /* ============ 右栏 ============ */
+  .right {
+    background: var(--bg-right);
+    border-left: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .right-head {
+    flex: 0 0 auto;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .right-head .title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    min-width: 0;
+  }
+  .right-head .title .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .right-head .spacer { flex: 1; }
+  .right-head .iconbtn {
+    width: 24px; height: 24px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    color: var(--tx-3);
+    flex: 0 0 auto;
+  }
+  .right-head .iconbtn:hover { background: var(--bg-hover); color: var(--tx); }
+
+  .seg {
+    display: inline-flex;
+    background: #1e222a;
+    border: 1px solid #2b313b;
+    border-radius: 999px;
+    padding: 2px;
+    flex: 0 0 auto;
+  }
+  .seg button {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    color: #97a1ae;
+    white-space: nowrap;
+  }
+  .seg button:hover { color: var(--tx); }
+  .seg button.on { background: #333a45; color: #fff; font-weight: 600; }
+
+  .right-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .group-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: #1b1f26;
+    border-radius: var(--r-sm);
+    padding: 5px 9px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #98a2af;
+    margin-top: 2px;
+  }
+  .group-bar .gcount { font-size: 10.5px; color: #6b7581; font-weight: 500; }
+
+  .task-row {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .task-row:hover { background: var(--bg-hover); border-color: #2c323c; }
+  .task-row .tid {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #7c8695;
+    white-space: nowrap;
+  }
+  .task-row .ttl {
+    font-size: 12.2px;
+    color: #d5dae1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .task-row .trs { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .badge.pr { background: var(--purple-dim); border-color: var(--purple-line); color: #d2a8ff; }
+  .badge.pr.ok { background: var(--green-dim); border-color: var(--green-line); color: #7ee787; }
+  .badge.pr.warn { background: var(--amber-dim); border-color: var(--amber-line); color: var(--amber); }
+  .badge.rule { background: #232830; border-color: #333a45; color: #9aa4b1; }
+  .badge.wait { background: var(--amber-dim); border-color: var(--amber-line); color: var(--amber); }
+  .badge.work { background: var(--blue-dim); border-color: var(--blue-line); color: #79b8ff; }
+  .badge.review { background: var(--purple-dim); border-color: var(--purple-line); color: #d2a8ff; }
+  .badge.done { background: var(--green-dim); border-color: var(--green-line); color: #7ee787; }
+  .badge.queued { background: #22262e; border-color: #2f3641; color: #8b95a2; }
+
+  /* 看板 */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: start;
+  }
+  .bcol {
+    background: #1a1e25;
+    border: 1px solid #252a33;
+    border-radius: var(--r-md);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .bcol-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #8b95a2;
+    padding: 0 2px 2px;
+  }
+  .bcard {
+    background: #21262f;
+    border: 1px solid #2d343f;
+    border-radius: var(--r-sm);
+    padding: 7px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .bcard:hover { border-color: #3d4653; background: #262c36; }
+  .bcard .bt { font-size: 11.8px; color: #dde2e9; line-height: 1.45; }
+  .bcard .bid { font-family: var(--mono); font-size: 10px; color: #6f7885; }
+
+  /* Library */
+  .lib-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .lib-row:hover { background: var(--bg-hover); border-color: #2c323c; }
+  .lib-name {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #cfd6de;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lib-meta { font-size: 10.5px; color: #6f7885; white-space: nowrap; }
+
+  /* 任务详情（右栏推入） */
+  .detail { display: flex; flex-direction: column; gap: 12px; }
+  .detail-top { display: flex; align-items: center; gap: 8px; }
+  .detail-top .back {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--tx-3);
+    padding: 3px 7px;
+    border-radius: 5px;
+  }
+  .detail-top .back:hover { background: var(--bg-hover); color: var(--tx); }
+  .detail h2 {
+    font-size: 15px;
+    line-height: 1.45;
+    font-weight: 620;
+    color: #eef1f6;
+  }
+  .detail .subline {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--tx-3);
+  }
+  .detail .desc {
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: #b9c1cb;
+    background: #1a1e25;
+    border: 1px solid #252a33;
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+  }
+  .kv {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 7px 10px;
+    font-size: 11.8px;
+    padding: 10px 12px;
+    background: #1a1e25;
+    border: 1px solid #252a33;
+    border-radius: var(--r-md);
+  }
+  .kv dt { color: #6f7885; }
+  .kv dd { color: #cfd6de; overflow-wrap: anywhere; }
+
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .tl-item {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: 9px;
+    padding-bottom: 12px;
+    position: relative;
+  }
+  .tl-item:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 6px; top: 14px; bottom: 0;
+    width: 1px;
+    background: #2a303a;
+  }
+  .tl-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-top: 5px;
+    background: #3d4653;
+    z-index: 1;
+  }
+  .tl-dot.ok { background: var(--green); }
+  .tl-dot.warn { background: var(--amber); }
+  .tl-dot.work { background: var(--blue); }
+  .tl-body .tl-t { font-size: 12px; color: #d5dae1; line-height: 1.55; }
+  .tl-body .tl-time { font-size: 10.5px; color: #626b78; margin-top: 2px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn {
+    font-size: 11.5px;
+    padding: 6px 11px;
+    border-radius: var(--r-sm);
+    background: #232830;
+    border: 1px solid #313844;
+    color: #cfd6de;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #2b313b; border-color: #3d4653; color: #fff; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: #5b9ef7; }
+  .btn.danger { color: #ff8b84; border-color: #4a2b2b; background: #2a1c1c; }
+  .btn.danger:hover { background: #3a2222; border-color: #6b3a3a; }
+
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 44px 20px;
+    text-align: center;
+    color: var(--tx-3);
+    font-size: 12px;
+  }
+  .empty .big { font-size: 22px; opacity: 0.5; }
+
+  /* ============ 弹层 ============ */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 10, 14, 0.62);
+    backdrop-filter: blur(3px);
+    display: grid;
+    place-items: center;
+    z-index: 100;
+    animation: fadeIn 140ms ease;
+    padding: 20px;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    width: min(460px, 100%);
+    background: #1b1f26;
+    border: 1px solid #333a45;
+    border-radius: var(--r-lg);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    animation: modalIn 170ms cubic-bezier(0.2, 0.8, 0.3, 1);
+    overflow: hidden;
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 10px;
+  }
+  .modal-head h3 { font-size: 14px; font-weight: 620; }
+  .modal-head .x { color: var(--tx-3); font-size: 17px; padding: 2px 7px; border-radius: 5px; }
+  .modal-head .x:hover { background: var(--bg-hover); color: var(--tx); }
+  .modal-body { padding: 4px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+  .field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #79828f;
+    margin-bottom: 6px;
+  }
+  .field input[type="text"] {
+    width: 100%;
+    background: #15181e;
+    border: 1px solid #2f3641;
+    border-radius: var(--r-sm);
+    padding: 8px 11px;
+    font-size: 13px;
+    color: var(--tx);
+  }
+  .field input[type="text"]:focus { border-color: var(--blue); }
+  .field input::placeholder { color: #5a6472; }
+  .field .hint { font-size: 11px; color: #626b78; margin-top: 5px; }
+
+  .icon-picker { display: flex; gap: 7px; flex-wrap: wrap; }
+  .icon-picker button {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 14px;
+    border: 2px solid transparent;
+    background: #232830;
+    color: #a6b0bc;
+  }
+  .icon-picker button:hover { background: #2b313b; }
+  .icon-picker button.on { border-color: var(--blue); }
+
+  .repo-list { display: flex; flex-direction: column; gap: 5px; }
+  .repo-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    background: #181c22;
+    border: 1px solid #272d37;
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .repo-item:hover { border-color: #3a424e; }
+  .repo-item .box {
+    width: 14px; height: 14px;
+    border-radius: 4px;
+    border: 1.5px solid #4a5361;
+    display: grid; place-items: center;
+    font-size: 9px;
+    color: transparent;
+    flex: 0 0 auto;
+  }
+  .repo-item.on .box { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .repo-item .rname { font-family: var(--mono); font-size: 11.8px; color: #cfd6de; }
+  .repo-item .rtag { margin-left: auto; font-size: 10.5px; color: #626b78; }
+
+  .modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid #272d37;
+    background: #191d24;
+  }
+
+  /* 弹出菜单 */
+  .menu {
+    position: fixed;
+    min-width: 186px;
+    background: #22272f;
+    border: 1px solid #3a424e;
+    border-radius: var(--r-md);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    z-index: 120;
+    animation: menuIn 110ms ease;
+  }
+  @keyframes menuIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .menu button > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    flex: 0 0 auto;
+    opacity: 0.8;
+  }
+  .menu button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    text-align: left;
+    padding: 6px 9px;
+    border-radius: 5px;
+    font-size: 12.2px;
+    color: #cfd6de;
+  }
+  .menu button:hover { background: #2e3541; color: #fff; }
+  .menu button.danger { color: #ff8b84; }
+  .menu button.danger:hover { background: #3a2222; }
+  .menu .sep { height: 1px; background: #333a45; margin: 4px 6px; }
+
+  /* @ 提及 */
+  .mention {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 6px;
+    background: #22272f;
+    border: 1px solid #3a424e;
+    border-radius: var(--r-md);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    max-height: 230px;
+    overflow-y: auto;
+    z-index: 30;
+  }
+  .mention .mh {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #6f7885;
+    padding: 5px 8px 3px;
+  }
+  .mention button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 5px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    color: #cfd6de;
+  }
+  .mention button:hover, .mention button.sel { background: #2e3541; }
+  .mention .mid { font-family: var(--mono); font-size: 11px; color: #79b8ff; flex: 0 0 auto; }
+  .mention .mtt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #262c36;
+    border: 1px solid #3a424e;
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 12.5px;
+    color: var(--tx);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    z-index: 200;
+    animation: toastIn 180ms ease;
+  }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translate(-50%, 8px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  .hidden { display: none !important; }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 1180px) {
+    .app { grid-template-columns: 210px minmax(0, 1fr) 340px; }
+    .center-head .goal { display: none; }
+  }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 200px minmax(0, 1fr); }
+    .right { display: none; }
+  }
+  @media (max-width: 620px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .side { display: none; }
+    .stream { padding: 16px 14px 8px; }
+    .composer-wrap { padding: 8px 14px 12px; }
+    .notice-bar { font-size: 11px; gap: 8px; }
+    /* 窄屏只留标题，描述收起 */
+    .notice-bar > span:not(.pill-dot):not(.spacer),
+    .notice-bar > b ~ span { display: none; }
+    .notice-bar .spacer { display: block; }
+    .composer .model { display: none; }
+    .center-head { padding: 0 12px; }
+    .env-row > span:last-child { display: none; }
+    .msg-user, .msg-agent { max-width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="notice-bar" id="noticeBar">
+    <span class="pill-dot"></span>
+    <b>交互原型</b>
+    <span class="nb-sep">·</span>
+    <span>左栏切项目，右栏切 List / Board / Library，点任务看详情</span>
+    <span class="nb-sep">·</span>
+    <span>输入框敲 <span class="kbd">@</span> 引用任务</span>
+    <span class="spacer"></span>
+    <button class="dismiss" id="dismissNotice" aria-label="关闭提示">×</button>
+  </div>
+
+  <div class="app">
+    <aside class="side" id="side"></aside>
+    <main class="center" id="center"></main>
+    <aside class="right" id="right"></aside>
+  </div>
+</div>
+
+<div id="layers"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     数据
+     ========================================================= */
+  const DB = {
+    projects: [
+      {
+        id: 'youshi-product',
+        name: 'Youshi产品',
+        icon: '☺',
+        tone: 'blue',
+        goal: '合盘与单人盘体验统一，转化不掉',
+        repos: ['youshi-web', 'youshi-api'],
+        time: '11d',
+        unread: true,
+        status: 'active',
+        nextSeq: 7,
+        tasks: [
+          {
+            id: 'YOU-4',
+            title: 'Staging 灰度验证',
+            status: 'waiting',
+            repo: 'youshi-api',
+            desc: '在 ap-southeast-1 预发环境验证 f31489d 的合盘逻辑，确认老用户迁移后不丢数据。',
+            worker: 'worker-deploy-check',
+            worktree: 'agent/you-4-staging-verify',
+            model: 'Gemini 4 Argon',
+            prs: [],
+            timeline: [
+              { t: '拉起预发环境，部署 f31489d 到 staging', time: '12 分钟前', tone: 'work' },
+              { t: '冒烟通过：登录、合盘切换、消息回流', time: '6 分钟前', tone: 'ok' },
+              { t: '发现 Cloudflare Tunnel 白名单未包含新容器 IP，等待确认', time: '2 分钟前', tone: 'warn' }
+            ],
+            question: {
+              from: 'YOU-4',
+              worker: 'worker-deploy-check',
+              text: '预发环境 ap-southeast-1 的 Cloudflare Tunnel 白名单还没加新容器 IP，要先只更 staging 还是等你配好一起切？',
+              options: ['先只更 staging，不动生产', '暂停等待，我去配 Cloudflare']
+            }
+          },
+          {
+            id: 'YOU-1',
+            title: '合盘切回单人盘 — 已合进 main (f31489d)',
+            status: 'done',
+            repo: 'youshi-web',
+            desc: '合盘里已经有消息时，左侧能点回单人盘；两对合盘来回切、胶囊上的 ×、「+」选盘都要切得走。',
+            worker: 'worker-a8f2',
+            worktree: 'agent/you-1-single-switch',
+            model: 'Gemini 4 Argon',
+            prs: [{ num: 252, state: 'merged' }],
+            timeline: [
+              { t: '定位合盘状态机与单人盘入口，复现三个切换路径', time: '3 天前', tone: 'work' },
+              { t: '重写视图切换，胶囊 × 与「+」选盘接入同一状态源', time: '2 天前', tone: 'work' },
+              { t: 'Chromium / WebKit 三档视口回归通过', time: '2 天前', tone: 'ok' },
+              { t: 'PR #252 已合并到 main，提交 f31489d', time: '11 天前', tone: 'ok' }
+            ],
+            artifacts: [
+              { kind: 'video', name: 'Entering user details', sub: '2:35 · 48 Steps · 三档视口回归' },
+              { kind: 'image', name: 'dandelion-390x844.png', sub: '截图 · Chromium' }
+            ]
+          },
+          {
+            id: 'YOU-2',
+            title: '合盘分数 — 已随 d006108 上线',
+            status: 'done',
+            repo: 'youshi-web',
+            desc: '合盘分数计算接入新的关系数据源。',
+            worker: 'worker-c31d',
+            worktree: 'agent/you-2-score',
+            model: 'Gemini 4 Argon',
+            prs: [{ num: 228, state: 'merged' }],
+            timeline: [
+              { t: '接入关系数据源，补分数回落逻辑', time: '14 天前', tone: 'work' },
+              { t: 'PR #228 合并，随 d006108 上线', time: '13 天前', tone: 'ok' }
+            ]
+          },
+          {
+            id: 'YOU-6',
+            title: '合盘埋点补全 — 等评审',
+            status: 'review',
+            repo: 'youshi-web',
+            desc: '补上合盘切换、选盘、退出的三个埋点，方便后面看转化漏斗。',
+            worker: 'worker-e4b1',
+            worktree: 'agent/you-6-tracking',
+            model: 'Gemini 4 Argon',
+            prs: [{ num: 261, state: 'open' }],
+            timeline: [
+              { t: '定位三个交互入口，接入统一埋点 SDK', time: '1 天前', tone: 'work' },
+              { t: '自测通过，提交 PR #261 等你评审', time: '5 小时前', tone: 'ok' }
+            ]
+          },
+          {
+            id: 'YOU-5',
+            title: '线上滚动发布 f31489d',
+            status: 'queued',
+            repo: 'youshi-api',
+            desc: '等 YOU-4 的 staging 验证通过后再执行，滚动发布带健康检查与回滚预案。',
+            worker: '',
+            worktree: '',
+            model: 'Gemini 4 Argon',
+            prs: [],
+            timeline: [{ t: '已排队，依赖 YOU-4 通过', time: '10 分钟前', tone: '' }]
+          },
+          {
+            id: 'YOU-3',
+            title: 'Production deploy — youshi.fun is on d006108',
+            status: 'done',
+            repo: 'youshi-api',
+            desc: '生产发布记录。',
+            worker: 'worker-9f0a',
+            worktree: 'agent/you-3-deploy',
+            model: 'Gemini 4 Argon',
+            prs: [],
+            timeline: [
+              { t: '滚动发布到生产，健康检查通过', time: '13 天前', tone: 'ok' }
+            ]
+          }
+        ],
+        library: [
+          { path: 'INDEX.md', scope: 'index', status: 'ratified', meta: '680 tok' },
+          { path: 'decisions/004-single-switch-state.md', scope: 'decision', status: 'ratified', meta: 'YOU-1' },
+          { path: 'decisions/003-score-source.md', scope: 'decision', status: 'ratified', meta: 'YOU-2' },
+          { path: 'runbooks/playwright-3-viewports.md', scope: 'runbook', status: 'proposed', meta: '待巩固' },
+          { path: 'runbooks/cf-tunnel-whitelist.md', scope: 'runbook', status: 'disputed', meta: 'YOU-4' },
+          { path: 'specs/youshi-merge-ux.md', scope: 'spec', status: 'ratified', meta: '1.2k tok' },
+          { path: 'artifacts/YOU-1-touch-regression.webm', scope: 'artifact', status: '', meta: 'Video · 2:35' },
+          { path: 'artifacts/YOU-1-dandelion-390x844.png', scope: 'artifact', status: '', meta: 'Image' },
+          { path: 'uploads/competitor-merge-flow.pdf', scope: 'user', status: '', meta: 'PDF · 4.1 MB' }
+        ],
+        messages: [
+          {
+            kind: 'user',
+            text: '把 @YOU-1 合盘切回单人盘的逻辑合进 main，顺便跑完 Chromium 和 WebKit 三档高度（390×844、390×664、360×740）回归，线上机器先别动。',
+            time: '11 天前'
+          },
+          { kind: 'relay', text: 'Messages from YOU-1 (worker-a8f2) · 4 条内部进度' },
+          {
+            kind: 'agent',
+            text: '第二轮用触摸里测过了，Chromium 和 WebKit 都跑了，三档高度是 <code>390×844</code>、<code>390×664</code>、<code>360×740</code>。合盘里已经有消息时，左侧能点回单人盘；两对合盘来回切、胶囊上的 ×、「+」选盘，也都切得走。没有新的点不动。',
+            artifact: { name: 'Entering user details', sub: '2:35 · 48 Steps · 存入 Library/artifacts/' }
+          },
+          {
+            kind: 'agent',
+            text: '<span class="ref-chip">⑂ 合盘切回单人盘 #252</span> 已经合进 <code>main</code>，提交是 <code>f31489d</code>。服务器没动，线上还是 <code>d006108</code>。要发布再说一声。'
+          },
+          {
+            kind: 'user',
+            text: '先把 staging 更上去看看，别动生产。',
+            time: '12 分钟前'
+          },
+          { kind: 'relay', text: 'Messages from YOU-4 (worker-deploy-check) · 3 条内部进度' },
+          {
+            kind: 'agent',
+            text: 'staging 已经在部署 <code>f31489d</code> 了，冒烟过了登录和合盘切换。有个前置条件卡住了，需要你定一下。'
+          }
+        ]
+      },
+      {
+        id: 'bzti',
+        name: 'BZTI',
+        icon: '◈',
+        tone: 'pink',
+        goal: '招投标资料自动生成流水线',
+        repos: ['bzti-docs'],
+        time: '27d',
+        unread: false,
+        status: 'active',
+        nextSeq: 3,
+        tasks: [
+          {
+            id: 'BZT-2',
+            title: '投标文件模板抽取 — 等评审',
+            status: 'review',
+            repo: 'bzti-docs',
+            desc: '从 12 份历史标书里抽出通用的章节骨架与话术模板。',
+            worker: 'worker-7d21',
+            worktree: 'agent/bzt-2-template',
+            model: 'Gemini 4 Argon',
+            prs: [{ num: 41, state: 'open' }],
+            timeline: [
+              { t: '解析 12 份 PDF，聚类出 7 个通用章节', time: '2 天前', tone: 'work' },
+              { t: '生成模板草稿并自查，提交 PR #41', time: '1 天前', tone: 'ok' }
+            ]
+          },
+          {
+            id: 'BZT-1',
+            title: '历史标书入库',
+            status: 'done',
+            repo: 'bzti-docs',
+            desc: '把历史标书统一转成 markdown 并入库。',
+            worker: 'worker-2c88',
+            worktree: 'agent/bzt-1-ingest',
+            model: 'Gemini 4 Argon',
+            prs: [],
+            timeline: [{ t: '128 份文档入库完成', time: '25 天前', tone: 'ok' }]
+          }
+        ],
+        library: [
+          { path: 'INDEX.md', scope: 'index', status: 'ratified', meta: '410 tok' },
+          { path: 'decisions/001-pdf-parser.md', scope: 'decision', status: 'ratified', meta: 'BZT-1' },
+          { path: 'runbooks/ocr-fallback.md', scope: 'runbook', status: 'ratified', meta: 'BZT-1' }
+        ],
+        messages: [
+          {
+            kind: 'agent',
+            text: 'BZT-2 的模板已经整理完了，抽出了 7 个通用章节，PR <span class="ref-chip">⑂ #41</span> 等你评审。要不要我先按这套模板生成一份样例标书？'
+          }
+        ]
+      },
+      {
+        id: 'native',
+        name: 'native',
+        icon: '◆',
+        tone: 'purple',
+        goal: '把 Web 端功能对齐到原生壳',
+        repos: ['native-shell'],
+        time: '17d',
+        unread: false,
+        status: 'active',
+        nextSeq: 1,
+        tasks: [],
+        library: [
+          { path: 'INDEX.md', scope: 'index', status: 'ratified', meta: '260 tok' }
+        ],
+        messages: [
+          {
+            kind: 'system',
+            text: '项目刚创建，还没有任何任务'
+          },
+          {
+            kind: 'agent',
+            text: '项目建好了。你可以在下面直接描述要做的事，或者先把相关仓库加进来。我建议先写一份 <code>INDEX.md</code> 把目标和硬约束定下来，后面每个任务都从它开始。'
+          }
+        ]
+      }
+    ],
+    workspaces: [
+      { id: 'ws-openhanako', name: 'openhanako', sessions: ['写入 2026-10-27 晚间复盘', '写入 10-27 访谈现状底稿', 'life-os 证据仓骨架'] },
+      { id: 'ws-youshi', name: 'youshi', sessions: ['合盘切回单人盘排查'] },
+      { id: 'ws-interview', name: 'interview', sessions: ['2026 and 2027 job search'] }
+    ]
+  };
+
+  const STATUS_META = {
+    waiting: { label: '待你决定', cls: 'wait', dot: 'var(--amber)' },
+    working: { label: '进行中', cls: 'work', dot: 'var(--blue)' },
+    review: { label: '待评审', cls: 'review', dot: 'var(--purple)' },
+    queued: { label: '排队中', cls: 'queued', dot: '#6f7885' },
+    done: { label: '已完成', cls: 'done', dot: 'var(--green)' }
+  };
+
+  const GROUP_ORDER = ['waiting', 'review', 'working', 'queued', 'done'];
+  const GROUP_LABEL = {
+    waiting: '待你决定',
+    review: '待评审',
+    working: '进行中',
+    queued: '排队中',
+    done: '已完成'
+  };
+
+  /* =========================================================
+     状态
+     ========================================================= */
+  const S = {
+    activeProject: 'youshi-product',
+    rightPane: 'list',
+    detailTask: null,
+    trayOpen: false,
+    trayDismissed: {},
+    search: '',
+    boardCollapsed: {},
+    menu: null,
+    modal: null,
+    mention: null,
+    typing: false,
+    toastTimer: null,
+    showArchived: false
+  };
+
+
+  /* =========================================================
+     图标
+     ========================================================= */
+  const ICON = {
+    plus: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>',
+    more: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.2" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.8" cy="8" r="1.25"/></svg>',
+    search: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.8" cy="6.8" r="4.1"/><path d="M9.9 9.9l3.4 3.4"/></svg>',
+    filter: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.6 4.2h10.8M4.6 8h6.8M6.6 11.8h2.8"/></svg>',
+    folder: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.6A1.6 1.6 0 0 1 3.6 3h2.5l1.2 1.5h5.1A1.6 1.6 0 0 1 14 6.1v5.3A1.6 1.6 0 0 1 12.4 13H3.6A1.6 1.6 0 0 1 2 11.4z"/></svg>',
+    chat: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.6 4.2h10.8v6.6H7.4l-2.9 2v-2H2.6z"/></svg>',
+    plug: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2.5v3M10 2.5v3M4.5 5.5h7v2.2a3.5 3.5 0 0 1-7 0zM8 11.2v2.3"/></svg>',
+    clock: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4"/><path d="M8 4.8V8l2.2 1.4"/></svg>',
+    dots: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.2" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.8" cy="8" r="1.25"/></svg>',
+    plusBox: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="2.4"/><path d="M8 5.4v5.2M5.4 8h5.2"/></svg>',
+    bell: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4.4 6.6a3.6 3.6 0 0 1 7.2 0v3l1 1.6H3.4l1-1.6z"/><path d="M6.6 12.6a1.4 1.4 0 0 0 2.8 0"/></svg>',
+    gear: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.2v1.4M8 12.4v1.4M2.2 8h1.4M12.4 8h1.4M4 4l1 1M11 11l1 1M12 4l-1 1M5 11l-1 1"/></svg>',
+    pencil: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 13l.7-2.8 7-7 2.1 2.1-7 7z"/><path d="M9.6 4.4l2 2"/></svg>',
+    pause: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="4.4" y="3.4" width="2.6" height="9.2" rx="1"/><rect x="9" y="3.4" width="2.6" height="9.2" rx="1"/></svg>',
+    play: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5.2 3.6l7 4.4-7 4.4z"/></svg>',
+    archive: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="3.2" width="11.2" height="2.8" rx="1"/><path d="M3.6 6v6.2h8.8V6M6.4 8.8h3.2"/></svg>',
+    trash: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 4.4h10M6.2 4.4V3h3.6v1.4M4.4 4.4l.6 8.2h6l.6-8.2"/></svg>'
+  };
+
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function project() {
+    return DB.projects.find((p) => p.id === S.activeProject) || DB.projects[0];
+  }
+
+  function visibleProjects() {
+    return DB.projects.filter((p) => S.showArchived || p.status !== 'archived');
+  }
+
+  function tasksByStatus(p, status) {
+    return p.tasks.filter((t) => t.status === status);
+  }
+
+  function countWaiting(p) {
+    return p.tasks.filter((t) => t.status === 'waiting').length;
+  }
+
+  function toast(text) {
+    const old = $('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    document.body.appendChild(el);
+    clearTimeout(S.toastTimer);
+    S.toastTimer = setTimeout(() => el.remove(), 2200);
+  }
+
+  /* =========================================================
+     左栏
+     ========================================================= */
+  function renderSide() {
+    const ps = visibleProjects();
+    const projRows = ps
+      .map((p) => {
+        const wait = countWaiting(p);
+        return `
+        <div class="proj-row ${p.id === S.activeProject ? 'active' : ''}" data-proj="${p.id}">
+          <span class="avatar tone-${p.tone}">${p.icon}</span>
+          <span class="pname">${esc(p.name)}</span>
+          ${p.unread ? '<span class="dot"></span>' : ''}
+          <span class="ptime">${p.time}</span>
+          <button class="more" data-projmenu="${p.id}" title="项目操作">${ICON.more}</button>
+        </div>`;
+      })
+      .join('');
+
+    const wsRows = DB.workspaces
+      .map(
+        (w) => `
+      <div class="side-row" data-ws="${w.id}" style="position:relative;">
+        <span class="ico">${ICON.folder}</span>
+        <span class="grow">${esc(w.name)}</span>
+        <button class="more" data-wsmenu="${w.id}" title="加入项目"
+          style="position:absolute;right:4px;width:20px;height:20px;display:none;place-items:center;border-radius:4px;background:var(--bg-hover);color:var(--tx-2);">${ICON.more}</button>
+      </div>`
+      )
+      .join('');
+
+    $('#side').innerHTML = `
+      <div class="side-brand">
+        <span class="mark">◈</span>
+        <span>deepseek</span>
+        <span class="tag">HARNESS</span>
+      </div>
+
+      <div class="side-scroll">
+        <div class="side-row" data-action="new-session">
+          <span class="ico">${ICON.plus}</span><span class="grow">新会话</span>
+        </div>
+        <div class="side-row" data-action="plugins">
+          <span class="ico">${ICON.plug}</span><span class="grow">插件</span>
+        </div>
+        <div class="side-row" data-action="automation">
+          <span class="ico">${ICON.clock}</span><span class="grow">自动化任务</span>
+        </div>
+        <div class="side-row" data-action="more">
+          <span class="ico">${ICON.dots}</span><span class="grow">更多</span>
+        </div>
+
+        <div class="side-sec">
+          <span>项目</span>
+          <span class="acts">
+            <button class="iconbtn" data-action="new-project" title="新建项目">${ICON.plus}</button>
+          </span>
+        </div>
+        ${projRows || '<div class="side-row" style="color:#5e6773;font-size:12px;">还没有项目</div>'}
+        ${DB.projects.some((p) => p.status === 'archived') ? `<div class="side-row" data-action="toggle-archived" style="font-size:11.5px;color:#5e6773;"><span class="ico">${S.showArchived ? '▾' : '▸'}</span><span class="grow">${S.showArchived ? '隐藏已归档' : '显示已归档'}</span></div>` : ''}
+
+        <div class="side-sec">
+          <span>工作区</span>
+          <span class="acts">
+            <button class="iconbtn" data-action="ws-search" title="搜索会话">${ICON.search}</button>
+            <button class="iconbtn" data-action="ws-add" title="添加工作区">${ICON.plusBox}</button>
+          </span>
+        </div>
+        ${wsRows}
+      </div>
+
+      <div class="side-foot">
+        <div class="side-row">
+          <span class="avatar tone-amber" style="width:19px;height:19px;font-size:10px;">v</span>
+          <span class="grow">veko</span>
+          <span class="meta" style="display:inline-flex;">${ICON.gear}</span>
+        </div>
+      </div>
+    `;
+
+    // 工作区行 hover 显示 ···
+    $('#side').querySelectorAll('[data-ws]').forEach((row) => {
+      const btn = row.querySelector('.more');
+      row.addEventListener('mouseenter', () => (btn.style.display = 'inline-flex'));
+      row.addEventListener('mouseleave', () => (btn.style.display = 'none'));
+    });
+  }
+
+  /* =========================================================
+     中栏
+     ========================================================= */
+  function renderCenter() {
+    const p = project();
+    const msgs = p.messages
+      .map((m) => {
+        if (m.kind === 'user') {
+          return `<div class="msg-user">${linkify(m.text)}<div class="t">${esc(m.time || '')}</div></div>`;
+        }
+        if (m.kind === 'relay') {
+          return `<div class="msg-relay" data-action="expand-relay"><span class="ln"></span><span>${esc(m.text)}</span><span class="ln"></span></div>`;
+        }
+        if (m.kind === 'system') {
+          return `<div class="msg-system">${esc(m.text)}</div>`;
+        }
+        const art = m.artifact
+          ? `<div class="art-card">
+               <div class="lhs">
+                 <div class="art-thumb">▶</div>
+                 <div>
+                   <div class="nm">${esc(m.artifact.name)}</div>
+                   <div class="sub">${esc(m.artifact.sub)}</div>
+                 </div>
+               </div>
+               <button class="art-play" data-action="play">Play</button>
+             </div>`
+          : '';
+        return `<div class="msg-agent"><p>${linkify(m.text)}</p>${art}</div>`;
+      })
+      .join('');
+
+    const q = pendingQuestion(p);
+    const pills = buildPills(p, q);
+
+    $('#center').innerHTML = `
+      <div class="center-head">
+        <div class="chip">
+          <span class="avatar tone-${p.tone}" style="width:16px;height:16px;font-size:10px;">${p.icon}</span>
+          <span class="nm">${esc(p.name)}</span>
+        </div>
+        <button class="addbtn" data-action="new-task" title="新建任务">${ICON.plus}</button>
+        <span class="spacer"></span>
+        <span class="goal">🎯 ${esc(p.goal)}</span>
+      </div>
+
+      <div class="stream" id="stream">
+        ${msgs}
+        ${S.typing ? '<div class="msg-agent"><div class="typing"><i></i><i></i><i></i></div></div>' : ''}
+      </div>
+
+      <div class="composer-wrap">
+        ${q && S.trayOpen ? renderTray(q) : ''}
+        <div class="pills">${pills}</div>
+        <div class="composer" style="position:relative;">
+          <button class="plus" data-action="attach" title="添加附件">${ICON.plus}</button>
+          <textarea id="input" rows="1" placeholder="给 ${esc(p.name)} 的协调者发消息，@ 引用任务，# 引用 PR"></textarea>
+          <div class="rhs">
+            <span class="model">Gemini 4 Argon</span>
+            <button class="send-btn" id="sendBtn">Send ↑</button>
+          </div>
+        </div>
+        <div class="env-row">
+          <span class="envsel" data-action="env">💻 本地 Worktree (This Mac) ＋ GitHub ▾</span>
+          <span>协调者不会写代码，只派活</span>
+        </div>
+      </div>
+    `;
+
+    bindComposer(p);
+    const stream = $('#stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }
+
+  function pendingQuestion(p) {
+    const t = p.tasks.find((x) => x.status === 'waiting' && x.question);
+    if (!t || S.trayDismissed[t.id + ':' + t.question.text]) return null;
+    return t.question;
+  }
+
+  function buildPills(p, q) {
+    const out = [];
+    if (q) {
+      out.push(`<button class="pill warn" data-action="toggle-tray">● Questions · <span class="num">1</span></button>`);
+    }
+    const running = p.tasks.filter((t) => t.status === 'working').length;
+    const done = p.tasks.filter((t) => t.status === 'done').length;
+    out.push(`<button class="pill" data-action="agents">Agents · <span class="num">${running}</span> running, <span class="num">${done}</span> done</button>`);
+    out.push(`<button class="pill" data-action="listening">Listening · GitHub PRs, main CI</button>`);
+    return out.join('');
+  }
+
+  function renderTray(q) {
+    return `
+      <div class="tray">
+        <div class="tray-head">
+          <div class="who">⚡ Question from <span>${esc(q.from)} (${esc(q.worker)})</span></div>
+          <button class="fold" data-action="toggle-tray">收起 ▾</button>
+        </div>
+        <div class="tray-q">${linkify(q.text)}</div>
+        <div class="tray-opts">
+          ${q.options.map((o, i) => `<button class="tray-opt" data-answer="${i}">${i + 1}. ${esc(o)}</button>`).join('')}
+          <button class="tray-opt" data-answer="open" style="background:#262a33;border-color:#363d49;color:#b9c1cb;">打开 ${esc(q.from)} 会话 →</button>
+        </div>
+      </div>`;
+  }
+
+  function linkify(text) {
+    // 保留既有 HTML 片段（code / ref-chip），只把 @YOU-1 和 #252 转成 chip
+    return String(text)
+      .replace(/@([A-Z]{2,4}-\d+)/g, '<span class="ref-chip">@$1</span>')
+      .replace(/(^|[\s（(])#(\d+)/g, '$1<span class="ref-chip">⑂ #$2</span>');
+  }
+
+  /* =========================================================
+     右栏
+     ========================================================= */
+  function renderRight() {
+    const p = project();
+    const body = S.detailTask ? renderDetail(p, S.detailTask) : renderPane(p);
+
+    $('#right').innerHTML = `
+      <div class="right-head">
+        <div class="title">
+          <span class="avatar tone-${p.tone}" style="width:16px;height:16px;font-size:10px;">${p.icon}</span>
+          <span class="nm">${esc(p.name)}</span>
+        </div>
+        <span class="spacer"></span>
+        <button class="iconbtn" data-action="filter" title="筛选">${ICON.filter}</button>
+        <div class="seg">
+          <button data-pane="list" class="${S.rightPane === 'list' ? 'on' : ''}">List</button>
+          <button data-pane="board" class="${S.rightPane === 'board' ? 'on' : ''}">Board</button>
+          <button data-pane="library" class="${S.rightPane === 'library' ? 'on' : ''}">Library</button>
+        </div>
+      </div>
+      <div class="right-body">${body}</div>
+    `;
+  }
+
+  function renderPane(p) {
+    if (S.rightPane === 'board') return renderBoard(p);
+    if (S.rightPane === 'library') return renderLibrary(p);
+    return renderList(p);
+  }
+
+  function renderList(p) {
+    if (!p.tasks.length) {
+      return `<div class="empty"><div class="big">◻</div><div>还没有任务</div><div style="font-size:11px;color:#5e6773;">跟协调者说一句要做什么，它会拆成任务</div></div>`;
+    }
+    const q = (S.search || '').toLowerCase();
+    let html = '';
+    GROUP_ORDER.forEach((st) => {
+      let list = tasksByStatus(p, st);
+      if (q) list = list.filter((t) => (t.id + ' ' + t.title).toLowerCase().includes(q));
+      if (!list.length) return;
+      const collapsed = S.boardCollapsed['list:' + st];
+      html += `<div class="group-bar">
+        <span style="cursor:pointer;" data-action="collapse" data-key="list:${st}">${collapsed ? '▸' : '▾'} ${GROUP_LABEL[st]} · ${list.length}</span>
+        <span class="gcount">${st === 'done' ? '自动归档' : st === 'waiting' ? '需拍板' : ''}</span>
+      </div>`;
+      if (collapsed) return;
+      list.forEach((t) => {
+        const prs = (t.prs || [])
+          .map((pr) => `<span class="badge pr ${pr.state === 'merged' ? 'ok' : pr.state === 'open' ? '' : 'warn'}">⑂ #${pr.num}</span>`)
+          .join('');
+        html += `<div class="task-row" data-task="${t.id}">
+          <span class="tid">${t.id}</span>
+          <span class="ttl">${esc(t.title)}</span>
+          <span class="trs">${prs || (st === 'waiting' ? '<span class="badge wait">Waiting</span>' : '')}</span>
+        </div>`;
+      });
+    });
+    return html || `<div class="empty"><div>没有匹配的任务</div></div>`;
+  }
+
+  function renderBoard(p) {
+    const cols = ['queued', 'working', 'waiting', 'review', 'done'];
+    return `<div class="board">${cols
+      .map((st) => {
+        const list = tasksByStatus(p, st);
+        const meta = STATUS_META[st];
+        return `<div class="bcol">
+          <div class="bcol-h"><span style="color:${meta.dot};">${meta.label}</span><span>${list.length}</span></div>
+          ${list
+            .map(
+              (t) => `<div class="bcard" data-task="${t.id}">
+                <span class="bid">${t.id}</span>
+                <span class="bt">${esc(t.title)}</span>
+                ${(t.prs || []).map((pr) => `<span class="badge pr ${pr.state === 'merged' ? 'ok' : ''}" style="align-self:flex-start;">⑂ #${pr.num}</span>`).join('')}
+                ${st === 'waiting' ? '<span class="badge wait" style="align-self:flex-start;">Question</span>' : ''}
+              </div>`
+            )
+            .join('') || '<div style="font-size:11px;color:#4f5865;padding:4px 2px;">—</div>'}
+        </div>`;
+      })
+      .join('')}</div>`;
+  }
+
+  function renderLibrary(p) {
+    const groups = [
+      { key: 'standing', label: '常驻上下文', hint: 'Git 追踪' },
+      { key: 'artifacts', label: '工件与参考', hint: '' }
+    ];
+    const standing = p.library.filter((f) => ['index', 'decision', 'runbook', 'spec'].includes(f.scope));
+    const artifacts = p.library.filter((f) => ['artifact', 'user'].includes(f.scope));
+
+    const row = (f) => {
+      const badge =
+        f.status === 'ratified'
+          ? '<span class="badge done">Ratified</span>'
+          : f.status === 'proposed'
+          ? '<span class="badge wait">Proposed</span>'
+          : f.status === 'disputed'
+          ? '<span class="badge" style="background:var(--red-dim);border-color:var(--red-line);color:#ff8b84;">Disputed</span>'
+          : '';
+      return `<div class="lib-row" data-lib="${esc(f.path)}">
+        <span class="lib-name">${esc(f.path)}</span>
+        <span>${badge}</span>
+        <span class="lib-meta">${esc(f.meta || '')}</span>
+      </div>`;
+    };
+
+    return `
+      <div class="group-bar"><span>常驻上下文</span><span class="gcount">${standing.length} 个文件 · Git 追踪</span></div>
+      ${standing.map(row).join('') || '<div class="empty" style="padding:18px;">还没有上下文文件</div>'}
+      <div class="group-bar" style="margin-top:6px;"><span>工件与参考</span><span class="gcount">${artifacts.length} 项</span></div>
+      ${artifacts.map(row).join('') || '<div class="empty" style="padding:18px;">还没有工件</div>'}
+    `;
+  }
+
+  function renderDetail(p, taskId) {
+    const t = p.tasks.find((x) => x.id === taskId);
+    if (!t) return '<div class="empty">任务不存在</div>';
+    const meta = STATUS_META[t.status];
+    const prs = (t.prs || []).map((pr) => `<span class="badge pr ${pr.state === 'merged' ? 'ok' : ''}">⑂ #${pr.num} · ${pr.state === 'merged' ? 'merged' : 'open'}</span>`).join(' ');
+
+    return `<div class="detail">
+      <div class="detail-top">
+        <button class="back" data-action="detail-back">← 返回列表</button>
+      </div>
+
+      <div>
+        <h2>${esc(t.title)}</h2>
+        <div class="subline" style="margin-top:7px;">
+          <span style="font-family:var(--mono);color:#79b8ff;">${t.id}</span>
+          <span class="badge ${meta.cls}">${meta.label}</span>
+          ${prs}
+        </div>
+      </div>
+
+      <div class="desc">${esc(t.desc || '')}</div>
+
+      <dl class="kv">
+        <dt>仓库</dt><dd>${esc(t.repo || '—')}</dd>
+        <dt>Worker</dt><dd style="font-family:var(--mono);font-size:11px;">${esc(t.worker || '—')}</dd>
+        <dt>Worktree</dt><dd style="font-family:var(--mono);font-size:11px;">${esc(t.worktree || '—')}</dd>
+        <dt>模型</dt><dd>${esc(t.model || '—')}</dd>
+      </dl>
+
+      ${
+        t.timeline && t.timeline.length
+          ? `<div>
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#626b78;margin-bottom:9px;">执行轨迹</div>
+              <div class="timeline">
+                ${t.timeline
+                  .map(
+                    (e) => `<div class="tl-item">
+                      <span class="tl-dot ${e.tone || ''}"></span>
+                      <div class="tl-body">
+                        <div class="tl-t">${esc(e.t)}</div>
+                        <div class="tl-time">${esc(e.time)}</div>
+                      </div>
+                    </div>`
+                  )
+                  .join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      <div class="actions">
+        <button class="btn primary" data-action="open-worker">打开 Worker 会话</button>
+        ${t.status !== 'done' ? `<button class="btn" data-action="mark-done" data-task="${t.id}">标记完成</button>` : ''}
+        ${t.status === 'working' ? `<button class="btn" data-action="stop-task" data-task="${t.id}">停止</button>` : ''}
+        ${t.status === 'done' ? `<button class="btn" data-action="reopen" data-task="${t.id}">重新打开</button>` : ''}
+      </div>
+    </div>`;
+  }
+
+  /* =========================================================
+     渲染主入口
+     ========================================================= */
+  function render() {
+    renderSide();
+    renderCenter();
+    renderRight();
+  }
+
+  /* =========================================================
+     交互
+     ========================================================= */
+  function selectProject(id) {
+    if (S.activeProject === id) return;
+    S.activeProject = id;
+    S.detailTask = null;
+    S.rightPane = 'list';
+    S.search = '';
+    S.trayOpen = false;
+    const p = project();
+    p.unread = false;
+    render();
+  }
+
+  function setPane(pane) {
+    S.rightPane = pane;
+    S.detailTask = null;
+    render();
+  }
+
+  function openTask(id) {
+    S.detailTask = id;
+    render();
+  }
+
+  function answerQuestion(idx, q) {
+    const p = project();
+    const t = p.tasks.find((x) => x.id === q.from);
+    if (!t) return;
+    S.trayDismissed[t.id + ':' + q.text] = true;
+    S.trayOpen = false;
+
+    const answerText = q.options[idx];
+    p.messages.push({ kind: 'user', text: answerText, time: '刚刚' });
+    p.messages.push({ kind: 'relay', text: `Messages from ${q.from} (${q.worker}) · 1 条内部进度` });
+
+    if (t) {
+      t.status = 'working';
+      t.timeline.push({ t: `已收到答复：${answerText}`, time: '刚刚', tone: 'work' });
+      delete t.question;
+    }
+    render();
+    setTimeout(() => {
+      p.messages.push({
+        kind: 'agent',
+        text: `收到，已经转给 <code>${esc(q.worker)}</code>。它按「${esc(answerText)}」继续，跑完会把结果贴回来。`
+      });
+      render();
+    }, 700);
+  }
+
+  function sendMessage() {
+    const input = $('#input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text || S.typing) return;
+    const p = project();
+    p.messages.push({ kind: 'user', text, time: '刚刚' });
+    input.value = '';
+    autoGrow(input);
+    S.typing = true;
+    render();
+
+    setTimeout(() => {
+      S.typing = false;
+      const reply = makeReply(text, p);
+      p.messages.push(...reply.messages);
+      if (reply.tasks && reply.tasks.length) {
+        reply.tasks.forEach((t) => {
+          p.tasks.unshift(t);
+          p.nextSeq = Math.max(p.nextSeq, parseInt(t.id.split('-')[1], 10) + 1);
+        });
+        p.messages.push({
+          kind: 'system',
+          text: `已创建 ${reply.tasks.length} 个任务，右栏可以看进度`
+        });
+      }
+      render();
+    }, 900);
+  }
+
+  function makeReply(text, p) {
+    const prefix = p.id === 'youshi-product' ? 'YOU' : p.id === 'bzti' ? 'BZT' : 'NAT';
+    const seq = p.nextSeq;
+
+    if (/拆|分成|几个|并行|三条|三块/.test(text)) {
+      const titles = ['抽离合盘状态源', '单人盘入口回归', '迁移脚本与数据校验'];
+      const tasks = titles.map((t, i) => ({
+        id: `${prefix}-${seq + i}`,
+        title: t,
+        status: i === 0 ? 'working' : 'queued',
+        repo: p.repos[i % p.repos.length],
+        desc: t,
+        worker: i === 0 ? `worker-${Math.random().toString(16).slice(2, 6)}` : '',
+        worktree: i === 0 ? `agent/${prefix.toLowerCase()}-${seq + i}-${i === 0 ? 'state' : 'task'}` : '',
+        model: 'Gemini 4 Argon',
+        prs: [],
+        timeline: i === 0 ? [{ t: '已拉起 worktree，开始读代码', time: '刚刚', tone: 'work' }] : []
+      }));
+      return {
+        messages: [
+          {
+            kind: 'agent',
+            text: `拆成 3 个任务了。<code>${prefix}-${seq}</code> 先跑起来摸状态源，另外两个排队等它出结论，避免三个人同时改同一处。`
+          }
+        ],
+        tasks
+      };
+    }
+
+    if (/上线|发布|deploy|生产/i.test(text)) {
+      return {
+        messages: [
+          {
+            kind: 'agent',
+            text: '发布我拆成一步来做：先确认 staging 的 <code>f31489d</code> 冒烟通过，再滚动到生产。这一步我派一个 worker 去做，做完把健康检查结果贴回来。'
+          }
+        ],
+        tasks: [
+          {
+            id: `${prefix}-${seq}`,
+            title: '生产发布 f31489d',
+            status: 'queued',
+            repo: p.repos[p.repos.length - 1],
+            desc: '滚动发布 f31489d 到生产，带健康检查与回滚预案。',
+            worker: '',
+            worktree: '',
+            model: 'Gemini 4 Argon',
+            prs: [],
+            timeline: []
+          }
+        ]
+      };
+    }
+
+    if (/测试|回归|验证/.test(text)) {
+      return {
+        messages: [
+          {
+            kind: 'agent',
+            text: '回归我用 Playwright 跑三档视口，Chromium 和 WebKit 各一遍。跑完把录屏和失败截图存进 Library，你直接点开看。'
+          }
+        ],
+        tasks: []
+      };
+    }
+
+    return {
+      messages: [
+        {
+          kind: 'agent',
+          text: `收到。我先看一下 <code>${esc(p.repos[0] || '仓库')}</code> 里相关的部分，需要动手的话我会拆成任务派下去，不会自己改代码。`
+        }
+      ],
+      tasks: []
+    };
+  }
+
+  function autoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 132) + 'px';
+  }
+
+  /* =========================================================
+     输入框与 @ 提及
+     ========================================================= */
+  function bindComposer(p) {
+    const input = $('#input');
+    const btn = $('#sendBtn');
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+      autoGrow(input);
+      const val = input.value;
+      const caret = input.selectionStart;
+      const upto = val.slice(0, caret);
+      const m = /@([A-Za-z0-9-]*)$/.exec(upto);
+      if (m) {
+        S.mention = { query: m[1].toLowerCase() };
+        renderMention(p, input);
+      } else {
+        closeMention();
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (S.mention && (e.key === 'Escape')) {
+        closeMention();
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && !S.mention) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    btn.addEventListener('click', sendMessage);
+  }
+
+  function renderMention(p, input) {
+    closeMention(true);
+    const q = S.mention.query;
+    const list = p.tasks.filter((t) => !q || (t.id + ' ' + t.title).toLowerCase().includes(q));
+    if (!list.length) return;
+
+    const box = document.createElement('div');
+    box.className = 'mention';
+    box.id = 'mentionBox';
+    box.innerHTML =
+      `<div class="mh">任务 · ${p.name}</div>` +
+      list
+        .map(
+          (t, i) => `<button data-mention="${t.id}" class="${i === 0 ? 'sel' : ''}">
+            <span class="mid">${t.id}</span>
+            <span class="mtt">${esc(t.title)}</span>
+            <span class="badge ${STATUS_META[t.status].cls}" style="flex:0 0 auto;">${STATUS_META[t.status].label}</span>
+          </button>`
+        )
+        .join('');
+
+    const composer = input.closest('.composer');
+    composer.appendChild(box);
+
+    box.querySelectorAll('[data-mention]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        insertMention(input, b.dataset.mention);
+      });
+    });
+  }
+
+  function insertMention(input, id) {
+    const val = input.value;
+    const caret = input.selectionStart;
+    const before = val.slice(0, caret).replace(/@([A-Za-z0-9-]*)$/, '@' + id + ' ');
+    const after = val.slice(caret);
+    input.value = before + after;
+    input.selectionStart = input.selectionEnd = before.length;
+    closeMention();
+    input.focus();
+    autoGrow(input);
+  }
+
+  function closeMention(keepState) {
+    const b = $('#mentionBox');
+    if (b) b.remove();
+    if (!keepState) S.mention = null;
+  }
+
+  /* =========================================================
+     弹窗：新建项目
+     ========================================================= */
+  const ICONS = [
+    { icon: '☺', tone: 'blue' },
+    { icon: '◈', tone: 'pink' },
+    { icon: '◆', tone: 'purple' },
+    { icon: '✦', tone: 'amber' },
+    { icon: '▣', tone: 'green' },
+    { icon: '⬡', tone: 'blue' }
+  ];
+  const REPOS = ['youshi-web', 'youshi-api', 'bzti-docs', 'native-shell', 'openhanako'];
+
+  function openCreateProject() {
+    const pick = { icon: 0, repos: [0] };
+    const layer = document.createElement('div');
+    layer.className = 'overlay';
+    layer.id = 'overlay';
+    layer.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-label="新建项目">
+        <div class="modal-head">
+          <h3>新建项目</h3>
+          <button class="x" data-close>×</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>图标</label>
+            <div class="icon-picker">
+              ${ICONS.map((o, i) => `<button data-icon="${i}" class="${i === 0 ? 'on' : ''}"><span class="avatar tone-${o.tone}" style="width:26px;height:26px;font-size:13px;">${o.icon}</span></button>`).join('')}
+            </div>
+          </div>
+          <div class="field">
+            <label>名称</label>
+            <input type="text" id="projName" placeholder="比如：合盘体验统一" autofocus>
+            <div class="hint">留空就叫「新项目」</div>
+          </div>
+          <div class="field">
+            <label>目标（选填）</label>
+            <input type="text" id="projGoal" placeholder="一句话说清这个项目要达成什么">
+          </div>
+          <div class="field">
+            <label>关联仓库</label>
+            <div class="repo-list">
+              ${REPOS.map(
+                (r, i) => `<div class="repo-item ${i === 0 ? 'on' : ''}" data-repo="${i}">
+                  <span class="box">✓</span>
+                  <span class="rname">${r}</span>
+                  <span class="rtag">${i < 2 ? '本地已克隆' : '远端'}</span>
+                </div>`
+              ).join('')}
+            </div>
+            <div class="hint">可以先不选，之后在项目设置里加</div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-close>取消</button>
+          <button class="btn primary" id="createBtn">创建项目</button>
+        </div>
+      </div>`;
+    $('#layers').appendChild(layer);
+
+    layer.querySelectorAll('[data-icon]').forEach((b) => {
+      b.addEventListener('click', () => {
+        layer.querySelectorAll('[data-icon]').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        pick.icon = +b.dataset.icon;
+      });
+    });
+    layer.querySelectorAll('[data-repo]').forEach((b) => {
+      b.addEventListener('click', () => {
+        b.classList.toggle('on');
+        const i = +b.dataset.repo;
+        pick.repos = pick.repos.includes(i) ? pick.repos.filter((x) => x !== i) : [...pick.repos, i];
+      });
+    });
+    layer.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeOverlay));
+    layer.addEventListener('click', (e) => {
+      if (e.target === layer) closeOverlay();
+    });
+
+    $('#createBtn').addEventListener('click', () => {
+      const name = ($('#projName').value || '').trim() || '新项目';
+      const goal = ($('#projGoal').value || '').trim() || '还没定目标';
+      const iconObj = ICONS[pick.icon];
+      const repos = pick.repos.length ? pick.repos.map((i) => REPOS[i]) : [];
+
+      const id = 'p-' + Date.now();
+      const p = {
+        id,
+        name,
+        icon: iconObj.icon,
+        tone: iconObj.tone,
+        goal,
+        repos,
+        time: '刚刚',
+        unread: false,
+        status: 'active',
+        nextSeq: 1,
+        tasks: [],
+        library: [{ path: 'INDEX.md', scope: 'index', status: 'proposed', meta: '草稿' }],
+        messages: [
+          { kind: 'system', text: `项目「${name}」已创建` },
+          {
+            kind: 'agent',
+            text: `项目建好了${repos.length ? `，已经关联 ${repos.map((r) => `<code>${esc(r)}</code>`).join('、')}` : ''}。你直接说要做什么，我拆成任务派下去；要是有跨任务都要遵守的规矩，跟我说一句，我写进 <code>INDEX.md</code>。`
+          }
+        ]
+      };
+      DB.projects.unshift(p);
+      closeOverlay();
+      S.activeProject = id;
+      S.rightPane = 'list';
+      S.detailTask = null;
+      render();
+      toast(`已创建「${name}」`);
+    });
+
+    setTimeout(() => $('#projName') && $('#projName').focus(), 60);
+  }
+
+  function closeOverlay() {
+    const o = $('#overlay');
+    if (o) o.remove();
+  }
+
+  /* =========================================================
+     菜单
+     ========================================================= */
+  function openMenu(anchor, items, opts) {
+    closeMenu();
+    const r = anchor.getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.className = 'menu';
+    menu.id = 'popMenu';
+    menu.innerHTML = items
+      .map((it) =>
+        it.sep
+          ? '<div class="sep"></div>'
+          : `<button class="${it.danger ? 'danger' : ''}" data-mi="${it.id}">${it.icon ? `<span style="width:14px;">${it.icon}</span>` : ''}${esc(it.label)}</button>`
+      )
+      .join('');
+    document.body.appendChild(menu);
+
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    let left = (opts && opts.alignRight) ? r.right - mw : r.left;
+    let top = r.bottom + 4;
+    if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+    if (left < 8) left = 8;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    menu.querySelectorAll('[data-mi]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.mi;
+        closeMenu();
+        if (opts && opts.onPick) opts.onPick(id);
+      });
+    });
+    S.menu = menu;
+  }
+
+  function closeMenu() {
+    const m = $('#popMenu');
+    if (m) m.remove();
+    S.menu = null;
+  }
+
+  /* =========================================================
+     事件委托
+     ========================================================= */
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+
+    // 关闭菜单
+    if (!t.closest('#popMenu') && !t.closest('[data-projmenu]') && !t.closest('[data-wsmenu]')) {
+      closeMenu();
+    }
+    if (!t.closest('.composer')) closeMention();
+
+    // 项目行
+    const projBtn = t.closest('[data-projmenu]');
+    if (projBtn) {
+      e.stopPropagation();
+      const id = projBtn.dataset.projmenu;
+      const p = DB.projects.find((x) => x.id === id);
+      openMenu(projBtn, [
+        { id: 'settings', label: '项目设置', icon: ICON.gear },
+        { id: 'index', label: '编辑 INDEX.md', icon: ICON.pencil },
+        { sep: true },
+        { id: p.status === 'paused' ? 'resume' : 'pause', label: p.status === 'paused' ? '恢复项目' : '暂停项目', icon: p.status === 'paused' ? ICON.play : ICON.pause },
+        { id: 'archive', label: '归档', icon: ICON.archive },
+        { sep: true },
+        { id: 'delete', label: '删除项目', danger: true, icon: ICON.trash }
+      ], {
+        alignRight: true,
+        onPick: (action) => handleProjectAction(id, action)
+      });
+      return;
+    }
+
+    const projRow = t.closest('[data-proj]');
+    if (projRow && !t.closest('.more')) {
+      selectProject(projRow.dataset.proj);
+      return;
+    }
+
+    // 工作区菜单
+    const wsBtn = t.closest('[data-wsmenu]');
+    if (wsBtn) {
+      e.stopPropagation();
+      const wsId = wsBtn.dataset.wsmenu;
+      openMenu(wsBtn, [
+        { id: 'add', label: '加入项目…', icon: ICON.folder },
+        { id: 'new', label: '在此新建会话', icon: ICON.plus },
+        { sep: true },
+        { id: 'rename', label: '重命名工作区', icon: ICON.pencil }
+      ], {
+        onPick: (action) => {
+          if (action === 'add') openAddToProject(wsId);
+          else toast('原型里只演示「加入项目」');
+        }
+      });
+      return;
+    }
+
+    // 左栏动作
+    const act = t.closest('[data-action]');
+    if (act) {
+      const a = act.dataset.action;
+      if (a === 'new-project') { openCreateProject(); return; }
+      if (a === 'toggle-archived') { S.showArchived = !S.showArchived; render(); return; }
+      if (a === 'new-task') { focusInput('新任务：'); return; }
+      if (a === 'toggle-tray') { S.trayOpen = !S.trayOpen; render(); return; }
+      if (a === 'agents') { setPane('list'); toast('切到 List 看所有任务'); return; }
+      if (a === 'listening') { toast('订阅：GitHub PR 活动、main 分支 CI'); return; }
+      if (a === 'env') { toast('执行位置：本机 Worktree（可切远端）'); return; }
+      if (a === 'detail-back') { S.detailTask = null; render(); return; }
+      if (a === 'open-worker') { toast('在原型里，这里会打开该 Worker 的会话'); return; }
+      if (a === 'play') { toast('播放回归录屏'); return; }
+      if (a === 'attach') { toast('附件上传'); return; }
+      if (a === 'filter') { toast('按状态 / PR / 仓库筛选'); return; }
+      if (a === 'expand-relay') { toast('展开 Worker 的内部进度'); return; }
+      if (a === 'mark-done') {
+        const id = act.dataset.task;
+        const p = project();
+        const task = p.tasks.find((x) => x.id === id);
+        if (task) { task.status = 'done'; task.timeline.push({ t: '人工标记完成', time: '刚刚', tone: 'ok' }); }
+        render(); toast('已标记完成');
+        return;
+      }
+      if (a === 'reopen') {
+        const id = act.dataset.task;
+        const p = project();
+        const task = p.tasks.find((x) => x.id === id);
+        if (task) task.status = 'working';
+        render(); toast('已重新打开');
+        return;
+      }
+      if (a === 'stop-task') {
+        const id = act.dataset.task;
+        const p = project();
+        const task = p.tasks.find((x) => x.id === id);
+        if (task) { task.status = 'queued'; task.timeline.push({ t: '人工停止，回到排队', time: '刚刚', tone: 'warn' }); }
+        render(); toast('已停止');
+        return;
+      }
+      if (a === 'collapse') {
+        const k = act.dataset.key;
+        S.boardCollapsed[k] = !S.boardCollapsed[k];
+        render(); return;
+      }
+      if (['new-session', 'plugins', 'automation', 'more', 'ws-search', 'ws-add'].includes(a)) {
+        toast('这是 DSH 原生入口，原型里不展开');
+        return;
+      }
+    }
+
+    // 回答托盘
+    const ansBtn = t.closest('[data-answer]');
+    if (ansBtn) {
+      const q = pendingQuestion(project());
+      if (!q) return;
+      const v = ansBtn.dataset.answer;
+      if (v === 'open') { toast('打开 ' + q.from + ' 的会话'); return; }
+      answerQuestion(+v, q);
+      return;
+    }
+
+    // 右栏切页
+    const paneBtn = t.closest('[data-pane]');
+    if (paneBtn) { setPane(paneBtn.dataset.pane); return; }
+
+    // 任务行
+    const taskRow = t.closest('[data-task]');
+    if (taskRow) { openTask(taskRow.dataset.task); return; }
+
+    // Library 行
+    const libRow = t.closest('[data-lib]');
+    if (libRow) { toast('打开 ' + libRow.dataset.lib); return; }
+  });
+
+  function handleProjectAction(id, action) {
+    const p = DB.projects.find((x) => x.id === id);
+    if (!p) return;
+    if (action === 'pause') { p.status = 'paused'; render(); toast(`「${p.name}」已暂停，所有任务冻结`); return; }
+    if (action === 'resume') { p.status = 'active'; render(); toast(`「${p.name}」已恢复`); return; }
+    if (action === 'archive') {
+      p.status = 'archived';
+      if (S.activeProject === id) S.activeProject = (visibleProjects()[0] || DB.projects[0]).id;
+      render(); toast(`「${p.name}」已归档`);
+      return;
+    }
+    if (action === 'delete') { confirmDelete(p); return; }
+    if (action === 'settings') { toast('项目设置：模型、仓库、环境、记忆'); return; }
+    if (action === 'index') { setPane('library'); toast('在 Library 里编辑 INDEX.md'); return; }
+  }
+
+  function confirmDelete(p) {
+    const layer = document.createElement('div');
+    layer.className = 'overlay';
+    layer.id = 'overlay';
+    layer.innerHTML = `
+      <div class="modal" style="width:min(400px,100%);" role="dialog" aria-modal="true">
+        <div class="modal-head"><h3>删除「${esc(p.name)}」？</h3><button class="x" data-close>×</button></div>
+        <div class="modal-body">
+          <div style="font-size:12.8px;line-height:1.65;color:#b9c1cb;">
+            会删掉这个项目的任务记录、Library 记忆文件和受管的本地 worktree。
+            <strong style="color:#e6e9ee;">已经推到 GitHub 的分支和 PR 不受影响。</strong>
+          </div>
+          <div style="font-size:11.5px;color:#6f7885;">这个操作不能撤销。</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-close>取消</button>
+          <button class="btn danger" id="delBtn">删除</button>
+        </div>
+      </div>`;
+    $('#layers').appendChild(layer);
+    layer.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeOverlay));
+    layer.addEventListener('click', (e) => { if (e.target === layer) closeOverlay(); });
+    $('#delBtn').addEventListener('click', () => {
+      const idx = DB.projects.findIndex((x) => x.id === p.id);
+      if (idx >= 0) DB.projects.splice(idx, 1);
+      if (S.activeProject === p.id) S.activeProject = DB.projects[0].id;
+      closeOverlay();
+      render();
+      toast(`「${p.name}」已删除`);
+    });
+  }
+
+  function openAddToProject(wsId) {
+    const ws = DB.workspaces.find((w) => w.id === wsId);
+    const layer = document.createElement('div');
+    layer.className = 'overlay';
+    layer.id = 'overlay';
+    layer.innerHTML = `
+      <div class="modal" style="width:min(420px,100%);" role="dialog" aria-modal="true">
+        <div class="modal-head"><h3>把「${esc(ws.name)}」加入项目</h3><button class="x" data-close>×</button></div>
+        <div class="modal-body">
+          <div style="font-size:12.5px;color:#a6b0bc;line-height:1.6;">
+            协调者会读这个工作区里的会话记录，把已经摸清的东西整理成项目上下文和待办任务。
+          </div>
+          <div class="repo-list">
+            ${DB.projects
+              .filter((p) => p.status === 'active')
+              .map((p) => `<div class="repo-item" data-target="${p.id}">
+                <span class="avatar tone-${p.tone}" style="width:18px;height:18px;font-size:10px;">${p.icon}</span>
+                <span class="rname" style="font-family:var(--sans);">${esc(p.name)}</span>
+                <span class="rtag">${p.tasks.length} 个任务</span>
+              </div>`)
+              .join('')}
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn" data-close>取消</button></div>
+      </div>`;
+    $('#layers').appendChild(layer);
+    layer.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeOverlay));
+    layer.addEventListener('click', (e) => { if (e.target === layer) closeOverlay(); });
+    layer.querySelectorAll('[data-target]').forEach((row) => {
+      row.addEventListener('click', () => {
+        const p = DB.projects.find((x) => x.id === row.dataset.target);
+        closeOverlay();
+        if (!p) return;
+        p.messages.push({ kind: 'system', text: `已收编工作区「${ws.name}」` });
+        p.messages.push({
+          kind: 'agent',
+          text: `读完了「${esc(ws.name)}」里的会话。我整理出两条要沉淀进 <code>INDEX.md</code> 的结论，先放 Library 里等你确认；另外有一个可以立刻开工的任务，要我派下去吗？`
+        });
+        p.tasks.unshift({
+          id: `${p.id === 'youshi-product' ? 'YOU' : p.id === 'bzti' ? 'BZT' : 'NAT'}-${p.nextSeq++}`,
+          title: `跟进「${ws.name}」里的遗留问题`,
+          status: 'queued',
+          repo: p.repos[0] || '',
+          desc: '从收编的会话里提取的待办。',
+          worker: '',
+          worktree: '',
+          model: 'Gemini 4 Argon',
+          prs: [],
+          timeline: []
+        });
+        S.activeProject = p.id;
+        render();
+        toast(`已加入「${p.name}」`);
+      });
+    });
+  }
+
+  function focusInput(prefix) {
+    const input = $('#input');
+    if (!input) return;
+    input.focus();
+    if (prefix) {
+      input.value = prefix;
+      input.selectionStart = input.selectionEnd = prefix.length;
+      autoGrow(input);
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if ($('#overlay')) { closeOverlay(); return; }
+      if ($('#popMenu')) { closeMenu(); return; }
+      if (S.mention) { closeMention(); return; }
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const d = $('#dismissNotice');
+    if (d) d.addEventListener('click', () => $('#noticeBar').classList.add('hidden'));
+  });
+
+  $('#dismissNotice').addEventListener('click', () => $('#noticeBar').classList.add('hidden'));
+
+  /* =========================================================
+     深链：方便逐个视图验收
+     #board / #library / #detail=YOU-4 / #tray / #new
+     ========================================================= */
+  function applyHash() {
+    const h = (location.hash || '').replace(/^#/, '');
+    if (!h) return;
+    const [k, v] = h.split('=');
+    if (k === 'board') S.rightPane = 'board';
+    else if (k === 'library') S.rightPane = 'library';
+    else if (k === 'detail' && v) { S.detailTask = decodeURIComponent(v); }
+    else if (k === 'tray') S.trayOpen = true;
+    else if (k === 'project' && v) S.activeProject = decodeURIComponent(v);
+  }
+  applyHash();
+  window.addEventListener('hashchange', () => { applyHash(); render(); });
+
+  /* 启动 */
+  render();
+  if (location.hash === '#new') openCreateProject();
+})();
+</script>
+</body>
+</html>

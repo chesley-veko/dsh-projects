@@ -1,0 +1,1988 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Projects 架构与交互设计规范 · 基于 Cursor / Claude Code / dsh-superagent 深度拆解</title>
+<style>
+  :root {
+    --ink: #14171c;
+    --ink-2: #363d47;
+    --muted: #5e6773;
+    --subtle: #8892a0;
+    --line: #e2e6ec;
+    --line-strong: #cbd2dc;
+    --bg: #ffffff;
+    --alt: #f6f8fa;
+    --card: #ffffff;
+    --accent: #2783DE;
+    --accent-ink: #175ca3;
+    --accent-bg: #f0f7ff;
+    --accent-line: #b8d8f8;
+    --green: #18794e;
+    --green-bg: #eefbf3;
+    --green-line: #b4e4c9;
+    --amber: #9a5b13;
+    --amber-bg: #fff9eb;
+    --amber-line: #f3d692;
+    --red: #b42318;
+    --red-bg: #fef3f2;
+    --red-line: #fecdca;
+    --purple: #6938ef;
+    --purple-bg: #f4f3ff;
+    --purple-line: #d9d6fe;
+    --radius: 10px;
+    --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 32px; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  code {
+    font-size: 12.5px;
+    background: #eef1f5;
+    color: #232a32;
+    padding: 2px 6px;
+    border-radius: 5px;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  .workbench code {
+    background: #232832;
+    color: #9cd1ff;
+    border: 1px solid #313846;
+    padding: 1px 5px;
+    font-size: 11.5px;
+  }
+  h1, h2, h3, h4, p { margin: 0; }
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.16;
+    letter-spacing: -0.022em;
+    font-weight: 650;
+  }
+  h2 {
+    font-size: 22px;
+    line-height: 1.3;
+    letter-spacing: -0.012em;
+    font-weight: 630;
+  }
+  h3 {
+    font-size: 16px;
+    line-height: 1.4;
+    font-weight: 620;
+  }
+  h4 {
+    font-size: 14px;
+    line-height: 1.4;
+    font-weight: 620;
+  }
+
+  /* Top nav */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topnav-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 32px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand-tag {
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .brand-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-links a {
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .nav-links a:hover {
+    background: var(--alt);
+    color: var(--ink);
+  }
+
+  /* Header */
+  header {
+    padding: 64px 0 48px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #fafcfe 0%, #ffffff 100%);
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    font-weight: 650;
+    margin-bottom: 14px;
+  }
+  .lede {
+    margin-top: 16px;
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    max-width: 780px;
+  }
+  .verdict-box {
+    margin-top: 28px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-bg);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+  }
+  .verdict-box .v-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+  .verdict-box p {
+    margin-top: 6px;
+    font-size: 15.5px;
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 28px;
+  }
+  .kpi {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: var(--card);
+  }
+  .kpi b {
+    display: block;
+    font-size: 20px;
+    font-weight: 650;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi span {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+    display: block;
+  }
+
+  /* Sections */
+  section { padding: 56px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 66px; }
+  section.alt { background: var(--alt); }
+  .shead { margin-bottom: 28px; max-width: 780px; }
+  .shead .num {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-right: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .shead .sub {
+    margin-top: 8px;
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* Background 3-problem cards */
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 20px 22px;
+    min-width: 0;
+  }
+  .card .kicker {
+    font-size: 11.5px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .card p {
+    margin-top: 8px;
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.6;
+  }
+  .card ul {
+    margin: 12px 0 0;
+    padding-left: 18px;
+    font-size: 13.8px;
+    color: var(--ink-2);
+  }
+  .card li + li { margin-top: 6px; }
+  .card code,
+  .card li code { overflow-wrap: anywhere; }
+  .card ul { padding-right: 2px; }
+
+  /* Comparison Table */
+  .table-wrap {
+    margin-top: 24px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    background: var(--card);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.8px;
+    text-align: left;
+    table-layout: fixed;
+  }
+  th, td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+  th {
+    background: #f8fafc;
+    font-weight: 630;
+    color: var(--ink);
+    font-size: 13px;
+    white-space: normal;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.col-key {
+    font-weight: 600;
+    color: var(--ink);
+    width: auto;
+    white-space: normal;
+  }
+  td.col-ours {
+    background: #f7fbff;
+  }
+  .table-wrap code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .compare-table col.c-dim { width: 11%; }
+  .compare-table col.c-p { width: 22.25%; }
+  .context-table col.c-layer { width: 14%; }
+  .context-table col.c-path { width: 23%; }
+  .context-table col.c-body { width: 27%; }
+  .context-table col.c-read { width: 15%; }
+  .context-table col.c-write { width: 21%; }
+  h2 code {
+    font-size: 0.82em;
+    background: transparent;
+    color: var(--accent-ink);
+    padding: 0;
+    border-bottom: 2px solid var(--accent-line);
+    border-radius: 0;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    line-height: 1;
+    padding: 4px 7px;
+    border-radius: 5px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .badge.blue { background: var(--accent-bg); border-color: var(--accent-line); color: var(--accent-ink); }
+  .badge.green { background: var(--green-bg); border-color: var(--green-line); color: var(--green); }
+  .badge.amber { background: var(--amber-bg); border-color: var(--amber-line); color: var(--amber); }
+  .badge.red { background: var(--red-bg); border-color: var(--red-line); color: var(--red); }
+  .badge.purple { background: var(--purple-bg); border-color: var(--purple-line); color: var(--purple); }
+  .badge.gray { background: #f1f3f6; border-color: #dde2e8; color: var(--muted); }
+
+  /* Interactive Workbench Mockup (Dark Cursor / DSH Theme) */
+  .wb-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .wb-switch-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .wb-switch-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .wb-btn {
+    appearance: none;
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 550;
+    padding: 7px 12px;
+    min-height: 36px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 120ms ease;
+  }
+  .wb-btn:hover { background: var(--alt); color: var(--ink); }
+  .wb-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .workbench {
+    border-radius: 12px;
+    border: 1px solid #2b2f36;
+    background: #141619;
+    color: #e4e7ec;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+    font-size: 13px;
+  }
+  .wb-titlebar {
+    min-height: 38px;
+    background: #181a1f;
+    border-bottom: 1px solid #262930;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 410px;
+    align-items: center;
+  }
+  .wb-tb-left {
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-right: 1px solid #262930;
+    height: 100%;
+    white-space: nowrap;
+  }
+  .traffic { display: flex; gap: 6px; flex: 0 0 auto; }
+  .traffic i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .traffic i.r { background: #ff5f57; }
+  .traffic i.y { background: #febc2e; }
+  .traffic i.g { background: #28c840; }
+  .wb-tb-center {
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-right: 1px solid #262930;
+    height: 100%;
+    min-width: 0;
+  }
+  .wb-tab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: #21252b;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: #f0f3f8;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .wb-tb-right {
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 100%;
+    white-space: nowrap;
+  }
+  .wb-body {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 410px;
+    min-height: 540px;
+  }
+
+  /* Left Col */
+  .wb-left {
+    background: #16181d;
+    border-right: 1px solid #262930;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    user-select: none;
+  }
+  .wb-nav-list { display: flex; flex-direction: column; gap: 2px; }
+  .wb-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: #b5bcc6;
+    font-size: 12.5px;
+  }
+  .wb-nav-item.active {
+    background: #252932;
+    color: #ffffff;
+    font-weight: 550;
+  }
+  .wb-sec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #7d8592;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .wb-sec-head > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wb-sec-head > span:last-child {
+    flex: 0 0 auto;
+    letter-spacing: 0.1em;
+  }
+  .wb-sec-head .slot-badge {
+    font-size: 10px;
+    color: #6cb6ff;
+    background: rgba(56, 139, 253, 0.14);
+    border: 1px solid rgba(56, 139, 253, 0.3);
+    padding: 1px 5px;
+    border-radius: 4px;
+    text-transform: none;
+  }
+  .wb-proj-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-grid;
+    place-items: center;
+    font-size: 11px;
+    flex: 0 0 auto;
+  }
+  .wb-proj-icon.blue { background: rgba(56, 139, 253, 0.2); color: #6cb6ff; }
+  .wb-proj-icon.green { background: rgba(46, 160, 67, 0.2); color: #56d364; }
+  .wb-proj-icon.pink { background: rgba(219, 97, 162, 0.2); color: #f778ba; }
+  .wb-age { font-size: 11.5px; color: #6e7681; font-variant-numeric: tabular-nums; }
+  .wb-unread {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #388bfd;
+    display: inline-block;
+  }
+
+  /* Center Col */
+  .wb-center {
+    background: #141619;
+    border-right: 1px solid #262930;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px 18px 14px;
+    min-width: 0;
+  }
+  .wb-chat-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .wb-user-msg {
+    align-self: flex-end;
+    background: #232730;
+    color: #eef1f6;
+    padding: 9px 13px;
+    border-radius: 10px;
+    max-width: 88%;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .wb-chip-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(56, 139, 253, 0.16);
+    color: #79c0ff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+  }
+  .wb-collapsed-relay {
+    text-align: center;
+    font-size: 11.5px;
+    color: #7d8592;
+    padding: 3px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .wb-collapsed-relay::before,
+  .wb-collapsed-relay::after {
+    content: "";
+    height: 1px;
+    width: 36px;
+    background: #262930;
+  }
+  .wb-agent-msg {
+    color: #dcdfe4;
+    font-size: 13px;
+    line-height: 1.58;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .wb-artifact-card {
+    border: 1px solid #2a2e37;
+    background: #1b1e24;
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .wb-artifact-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .wb-play-thumb {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    background: #262b34;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 12px;
+    flex: 0 0 auto;
+  }
+  .wb-play-btn {
+    background: #282d37;
+    border: 1px solid #363c48;
+    color: #e4e7ec;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+  }
+
+  /* Composer area */
+  .wb-composer-wrap {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wb-tray {
+    border: 1px solid #3b311a;
+    background: #221d14;
+    border-radius: 9px;
+    padding: 10px 12px;
+    display: none;
+  }
+  .wb-tray.visible { display: block; }
+  .wb-tray-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11.5px;
+    color: #f2cc60;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .wb-tray-head > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wb-tray-head > span:last-child {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .wb-tray-q {
+    font-size: 12.5px;
+    color: #f0f3f8;
+    margin-bottom: 8px;
+  }
+  .wb-tray-opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .wb-tray-opt {
+    font-size: 11.5px;
+    padding: 4px 9px;
+    border-radius: 5px;
+    background: #2d271c;
+    border: 1px solid #4d3f22;
+    color: #f5d98a;
+  }
+
+  .wb-pills-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .wb-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #1f232a;
+    border: 1px solid #2e343e;
+    color: #c2c8d2;
+  }
+  .wb-pill.warn {
+    background: rgba(210, 153, 34, 0.15);
+    border-color: rgba(210, 153, 34, 0.4);
+    color: #e3b341;
+  }
+  .wb-composer {
+    border: 1px solid #2e343e;
+    background: #1b1e24;
+    border-radius: 10px;
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .wb-composer-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #8b949e;
+    font-size: 12.5px;
+    min-width: 0;
+  }
+  .wb-composer-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: #8b949e;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .wb-send-btn {
+    background: #2783DE;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .wb-env-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: #7d8592;
+    padding: 0 2px;
+  }
+
+  /* Right Col */
+  .wb-right {
+    background: #16181d;
+    padding: 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .wb-r-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .wb-r-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #f0f3f8;
+    font-size: 13.5px;
+  }
+  .wb-seg {
+    display: inline-flex;
+    background: #20242c;
+    border: 1px solid #2d323c;
+    border-radius: 999px;
+    padding: 2px;
+  }
+  .wb-seg button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: #9ca3af;
+    font-size: 11.5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .wb-seg button.active {
+    background: #303642;
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .wb-r-pane { display: none; flex-direction: column; gap: 10px; }
+  .wb-r-pane.active { display: flex; }
+
+  .wb-group-bar {
+    background: #1d2027;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+  }
+  .wb-task-row {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 12.2px;
+  }
+  .wb-task-row:hover {
+    background: #1e222a;
+    border-color: #2b303b;
+  }
+  .wb-task-id {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    color: #8b949e;
+    font-size: 11.5px;
+  }
+  .wb-task-title {
+    color: #dcdfe4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wb-pr-pill {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(137, 87, 229, 0.18);
+    border: 1px solid rgba(137, 87, 229, 0.4);
+    color: #d2a8ff;
+    white-space: nowrap;
+  }
+  .wb-pr-pill.green {
+    background: rgba(46, 160, 67, 0.18);
+    border-color: rgba(46, 160, 67, 0.4);
+    color: #7ee787;
+  }
+  .wb-pr-pill.amber {
+    background: rgba(210, 153, 34, 0.18);
+    border-color: rgba(210, 153, 34, 0.4);
+    color: #e3b341;
+  }
+
+  /* Board mini columns */
+  .wb-board-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .wb-b-col {
+    background: #1b1e24;
+    border: 1px solid #272b34;
+    border-radius: 7px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .wb-b-col-h {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8b949e;
+    display: flex;
+    justify-content: space-between;
+  }
+  .wb-b-card {
+    background: #232730;
+    border: 1px solid #303642;
+    border-radius: 6px;
+    padding: 7px;
+    font-size: 11.5px;
+    color: #e4e7ec;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Library files table */
+  .wb-lib-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 8px;
+    border-bottom: 1px solid #22262e;
+    font-size: 12px;
+  }
+  .wb-lib-name {
+    color: #e4e7ec;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Domain Model & Flow */
+  .model-chain {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .m-node {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 18px;
+    position: relative;
+  }
+  .m-node .rel {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--accent-ink);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .m-node h3 { margin-top: 4px; }
+  .m-node p {
+    margin-top: 8px;
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .m-node ul {
+    margin: 10px 0 0;
+    padding-left: 16px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .m-node li + li { margin-top: 4px; }
+
+  /* Code & Schema Layout */
+  .schema-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+    margin-top: 24px;
+  }
+  pre.codebox {
+    margin: 0;
+    background: #12151a;
+    color: #dce3ec;
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    overflow-x: auto;
+    border: 1px solid #262b33;
+  }
+  pre.codebox .c { color: #7a8696; }
+  pre.codebox .k { color: #79c0ff; }
+  pre.codebox .s { color: #a5d6ff; }
+
+  /* Milestones */
+  .ms-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .ms-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ms-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ms-id {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-ink);
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-line);
+    padding: 2px 8px;
+    border-radius: 5px;
+  }
+  .ms-dur { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ms-card dl { margin: 4px 0 0; display: grid; gap: 8px; }
+  .ms-card dt {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--subtle);
+  }
+  .ms-card dd { margin: 2px 0 0; font-size: 13.2px; color: var(--ink-2); line-height: 1.5; }
+
+  footer {
+    padding: 40px 0 64px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  footer p + p { margin-top: 6px; }
+
+  @media (max-width: 960px) {
+    .kpi-strip, .grid-3, .model-chain, .ms-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-2, .schema-split { grid-template-columns: minmax(0, 1fr); }
+    .wb-titlebar, .wb-body { grid-template-columns: minmax(0, 1fr); }
+    .wb-tb-left, .wb-tb-center, .wb-left, .wb-center { border-right: 0; border-bottom: 1px solid #262930; }
+  }
+
+  /* Narrow screens: wide data tables collapse into labelled stacked cards */
+  @media (max-width: 820px) {
+    .table-wrap {
+      border: 0;
+      border-radius: 0;
+      overflow: visible;
+      background: transparent;
+    }
+    .table-wrap table,
+    .table-wrap tbody { display: block; width: 100%; }
+    .table-wrap thead { display: none; }
+    .table-wrap tr {
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 16px 18px;
+      margin-bottom: 12px;
+    }
+    .table-wrap td {
+      display: block;
+      border: 0;
+      padding: 0 0 12px;
+      font-size: 13.8px;
+    }
+    .table-wrap td:last-child { padding-bottom: 0; }
+    .table-wrap td.col-key {
+      width: auto;
+      white-space: normal;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-ink);
+      padding-bottom: 8px;
+    }
+    .table-wrap td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--subtle);
+      margin-bottom: 3px;
+    }
+    .table-wrap td.col-ours {
+      background: var(--accent-bg);
+      border: 1px solid var(--accent-line);
+      border-radius: 7px;
+      padding: 10px 12px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .wrap, .topnav-inner { padding: 0 18px; }
+    header { padding: 44px 0 36px; }
+    section { padding: 40px 0; }
+    code { white-space: normal; overflow-wrap: anywhere; }
+    .kpi-strip, .grid-3, .model-chain, .ms-grid, .wb-board-grid { grid-template-columns: minmax(0, 1fr); }
+    .wb-task-row { grid-template-columns: 48px minmax(0, 1fr); }
+    .wb-task-row .wb-pr-pill { grid-column: 2; justify-self: start; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav" aria-label="章节导航">
+  <div class="topnav-inner">
+    <div class="brand-tag"><span class="brand-dot"></span>DSH Projects 设计规范</div>
+    <div class="nav-links">
+      <a href="#background">01 背景与三方拆解</a>
+      <a href="#workbench">02 三栏交互原型</a>
+      <a href="#domain">03 四层域模型</a>
+      <a href="#contracts">04 六大交互细节</a>
+      <a href="#Context">05 Library 与记忆治理</a>
+      <a href="#surgery">06 dsh-superagent 改造落点</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Architecture &amp; Interaction Specification · 2026-11</p>
+    <h1>在 DeepSeek Harness 上实现 Projects</h1>
+    <p class="lede">
+      将 <strong>Cursor Projects（3.20–3.27）的三栏交互工作台</strong>、<strong>Claude Code Projects 的三层记忆与状态收敛机制</strong>，装进 <strong>DeepSeek 官方 <code>dsh-superagent</code> 的事务与授权引擎</strong>。不修改 DSH 宿主源码（<code>app.asar</code>）一行，以纯 Bundle 插件形态交付。
+    </p>
+
+    <div class="verdict-box">
+      <span class="v-title">核心结论</span>
+      <p>
+        Projects 不是「带文件夹的聊天列表」，而是把 Agent 的工作单元从<strong>单次会话（Session）</strong>提升为<strong>持久项目（Project）</strong>。<strong>壳学 Cursor</strong>（左栏平铺项目、中栏常驻协调者、右栏 <code>List | Board | Library</code>）、<strong>上下文分层学 Claude Code</strong>（Instructions / Memory 索引 / 仓库 <code>AGENTS.md</code> 严格隔离）、<strong>底座用 <code>dsh-superagent</code></strong>（单写者 SQLite 事务、Effect 持久化队列、Mandate 授权边界、Local Worktree 并发槽位）。
+      </p>
+    </div>
+
+    <div class="kpi-strip">
+      <div class="kpi">
+        <b>0 行</b>
+        <span>宿主 <code>app.asar</code> 侵入改动（纯插件注入）</span>
+      </div>
+      <div class="kpi">
+        <b>3 刀 / ~350 行</b>
+        <span>解开 <code>dsh-superagent</code> 原型三大死锁</span>
+      </div>
+      <div class="kpi">
+        <b>4 层解耦</b>
+        <span><code>Project → Task(YOU-1) → Worker → PR</code></span>
+      </div>
+      <div class="kpi">
+        <b>Local-First</b>
+        <span>默认本机 Worktree 跑满全套工具，云端留缝</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 01 背景与三方对比 -->
+<section id="background">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">01</span>背景：为什么「单次会话」撑不起长周期工程？</h2>
+      <p class="sub">
+        当开发任务从「修一个函数」变成「跨 15 个 PR 的功能、框架迁移或日常守护」时，传统的「一个任务开一个 Chat」模式会同时撞上三座墙。
+      </p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card">
+        <p class="kicker">痛点一 · 冷启动失忆</p>
+        <h3>每个新会话都在重新摸石头过河</h3>
+        <p>
+          上个会话花了 12 轮才试出「跑集成测试前要先起本地 Redis 容器、鉴权走网关 B」，会话一关知识就锁死在旧聊天记录里。下个会话进来，你得把背景再敲一遍，或者看着 Agent 再踩一遍同样的坑。
+        </p>
+      </article>
+
+      <article class="card">
+        <p class="kicker">痛点二 · 人工调度带宽爆炸</p>
+        <h3>人被迫给十几个并发会话当肉身路由器</h3>
+        <p>
+          并行开 5 个会话改不同模块时，你需要自己切窗口盯谁跑完了、谁卡在权限确认、谁的 CI 挂了、哪两个分支改了同一处配置。并行度超过 3，人的心智负担就超过写代码本身。
+        </p>
+      </article>
+
+      <article class="card">
+        <p class="kicker">痛点三 · 左栏会话坟场</p>
+        <h3>几十个同名会话堆满侧边栏</h3>
+        <p>
+          一周下来左栏攒出 40 个自动命名的会话，分不清哪个是临时提问、哪个是还没合入的半成品分支，也无法把正在进行的分支工作移交给后续任务接着做。
+        </p>
+      </article>
+    </div>
+
+    <div class="table-wrap">
+      <table class="compare-table">
+        <colgroup><col class="c-dim"><col class="c-p"><col class="c-p"><col class="c-p"><col class="c-p"></colgroup>
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>Cursor Projects (3.20–3.27)</th>
+            <th>Claude Code Projects + Agent View</th>
+            <th>官方 <code>dsh-superagent</code> 原型</th>
+            <th>我们的方案（DSH Projects 插件）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-key" data-label="维度">产品定位</td>
+            <td data-label="Cursor Projects (3.20–3.27)">云端优先的交互式多 Agent 项目工作台</td>
+            <td data-label="Claude Code Projects + Agent View">云端主会话统筹 + 本地/云端 Thread 并行</td>
+            <td data-label="官方 dsh-superagent 原型">单仓库、外部 IM/GitHub 驱动的值班机器人</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong>Local-first 交互式项目工作台 + 外部事件订阅</strong></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">界面骨架</td>
+            <td data-label="Cursor Projects (3.20–3.27)">左栏扁平 Projects + 中栏协调者 + 右栏 <code>List | Board | Library</code></td>
+            <td data-label="Claude Code Projects + Agent View">左栏 Projects + 中栏对话 + 右栏 <code>Threads | Library | PRs | Routines</code></td>
+            <td data-label="官方 dsh-superagent 原型">独立运维监控面板（<code>Overview / Source / Trigger / Eval / Execution</code>）</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong>1:1 复刻 Cursor 三栏骨架</strong>，挂载进 DSH 原生左栏与右栏 Dock</td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">工作单元关系</td>
+            <td data-label="Cursor Projects (3.20–3.27)"><strong>Task 与 Worker 解耦</strong>（3.26 起）：<code>YOU-1</code> 可先排队、后派 Worker、挂多 PR</td>
+            <td data-label="Claude Code Projects + Agent View">Conversation 派发独立 Thread（1 Thread = 1 分支/PR）</td>
+            <td data-label="官方 dsh-superagent 原型"><strong>锁死 <code>1 Trigger = 1 Ticket = 1 Session</code></strong>，无法一拆多</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong><code>Project → Task(YOU-1) → Ticket/Worker → PR</code> 四层解耦</strong></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">协调者职责</td>
+            <td data-label="Cursor Projects (3.20–3.27)">规划、写 Spec、维护 Task Tracker、派发并复用 Worker，不写代码</td>
+            <td data-label="Claude Code Projects + Agent View">拆解任务、回答快问题、提议 Suggested Threads、汇总回报</td>
+            <td data-label="官方 dsh-superagent 原型"><strong>严禁做计划、严禁写 Spec</strong>，只做准入路由（备注 ≤30 词）</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong>交互对话允许规划写 Spec 与 1 拆 N；外部异步事件保持严苛准入</strong></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">共享上下文</td>
+            <td data-label="Cursor Projects (3.20–3.27)"><code>Library</code> 文件集（Project / User 分层），跨机同步，无淘汰机制</td>
+            <td data-label="Claude Code Projects + Agent View">三层隔离：<code>Project Instructions</code> + <code>MEMORY.md</code> 索引 + 仓库 <code>CLAUDE.md</code></td>
+            <td data-label="官方 dsh-superagent 原型"><strong>无跨 Ticket 记忆</strong>，只有 Thread 事件流与静态团队 Prompt</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong>Git 化的 <code>Library</code> 文件集</strong> + 按角色过滤注入 + Ticket 完结巩固与反驳通道</td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">权限与安全</td>
+            <td data-label="Cursor Projects (3.20–3.27)">软边界（3.26 补了新机器/新仓库首次使用需审批卡片）</td>
+            <td data-label="Claude Code Projects + Agent View">Auto mode + 子线程内单独审批（主对话审批无效）</td>
+            <td data-label="官方 dsh-superagent 原型"><strong>教科书级硬边界</strong>：确定性 Gate + 不可变 <code>Mandate</code> + 订阅只传上下文不传权限</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）"><strong>保留 <code>Mandate</code> 硬边界</strong>，新增内建 <code>project-chat</code> Source 打通人机直接授权</td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="维度">最大短板</td>
+            <td data-label="Cursor Projects (3.20–3.27)">强制默认跑云 VM（本地 MCP/内网断裂）；只有 Archive 无真 Delete</td>
+            <td data-label="Claude Code Projects + Agent View">子线程卡住时必须点进子线程内部解锁，无法在主对话直答</td>
+            <td data-label="官方 dsh-superagent 原型">人在 DSH 里跟协调者说话开不出单；每开一单左栏多一个顶层 Workspace</td>
+            <td class="col-ours" data-label="我们的方案（DSH Projects 插件）">补齐三方短板：<strong>本机 Worktree 优先 + 主窗口 Question Tray 直答 + 真 Delete</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 02 三栏交互原型 -->
+<section class="alt" id="workbench">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">02</span>三栏交互原型与 DSH 插槽映射（可点击切换）</h2>
+      <p class="sub">
+        严格对齐你的 Cursor 真实截图与 DSH 客户端内部包（<code>@deepseek-ai/dsh-client-ui-sidebar</code>、<code>ui-conversation</code>、<code>ui-sidebar-right</code>）。点击下方按钮可预览不同交互状态。
+      </p>
+    </div>
+
+    <div class="wb-controls">
+      <div class="wb-switch-group">
+        <span class="wb-switch-label">右栏视图：</span>
+        <button type="button" class="wb-btn active" onclick="switchRightPane('list', this)">List（任务列表）</button>
+        <button type="button" class="wb-btn" onclick="switchRightPane('board', this)">Board（看板列）</button>
+        <button type="button" class="wb-btn" onclick="switchRightPane('library', this)">Library（项目上下文与工件）</button>
+      </div>
+      <div class="wb-switch-group">
+        <span class="wb-switch-label">输入框上方托盘：</span>
+        <button type="button" class="wb-btn" id="trayToggleBtn" onclick="toggleQuestionTray()">模拟 Worker 提问弹出 (Question Tray)</button>
+      </div>
+    </div>
+
+    <div class="workbench" role="region" aria-label="DSH Projects 三栏交互原型">
+      <!-- Window Titlebar -->
+      <div class="wb-titlebar">
+        <div class="wb-tb-left">
+          <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+          <span style="color:#8b949e;font-size:12px;">deepseek <b style="color:#6cb6ff;">HARNESS</b></span>
+        </div>
+        <div class="wb-tb-center">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="wb-tab-pill"><span class="wb-proj-icon blue" style="width:14px;height:14px;font-size:9px;">☺</span> Youshi产品</span>
+            <span style="color:#6e7681;font-size:14px;">+</span>
+          </div>
+          <span style="font-size:11px;color:#7d8592;">插槽: <code>main.conversation</code> (Coordinator Session)</span>
+        </div>
+        <div class="wb-tb-right">
+          <span class="wb-tab-pill">📊 Project</span>
+          <span style="font-size:11px;color:#7d8592;">插槽: <code>sidebarRightTabs</code></span>
+        </div>
+      </div>
+
+      <!-- 3-Column Body -->
+      <div class="wb-body">
+        <!-- Left Sidebar -->
+        <div class="wb-left">
+          <div class="wb-nav-list">
+            <div class="wb-nav-item"><span>＋ 新会话</span><span class="wb-age">⌘N</span></div>
+            <div class="wb-nav-item"><span>✥ 插件</span></div>
+            <div class="wb-nav-item"><span>◔ 自动化任务</span></div>
+            <div class="wb-nav-item"><span>··· 更多</span></div>
+          </div>
+
+          <!-- Injected Projects Section -->
+          <div style="display:flex;flex-direction:column;gap:4px;padding-top:6px;border-top:1px solid #262930;">
+            <div class="wb-sec-head">
+              <span>Projects</span>
+              <span class="slot-badge">注入点 · ＋</span>
+            </div>
+            <div class="wb-nav-list">
+              <div class="wb-nav-item active">
+                <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+                  <span class="wb-proj-icon blue">☺</span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Youshi产品</span>
+                </span>
+                <span class="wb-age">11d</span>
+              </div>
+              <div class="wb-nav-item">
+                <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+                  <span class="wb-proj-icon green">⑂</span>
+                  <span>Youshi</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;"><i class="wb-unread" title="协调者有新回复"></i><span class="wb-age">17d</span></span>
+              </div>
+              <div class="wb-nav-item">
+                <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+                  <span class="wb-proj-icon pink">☺</span>
+                  <span>native</span>
+                </span>
+                <span class="wb-age">17d</span>
+              </div>
+              <div class="wb-nav-item">
+                <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+                  <span class="wb-proj-icon pink">☺</span>
+                  <span>BZTI</span>
+                </span>
+                <span class="wb-age">27d</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Native Workspaces Section -->
+          <div style="display:flex;flex-direction:column;gap:4px;padding-top:6px;border-top:1px solid #262930;">
+            <div class="wb-sec-head">
+              <span>工作区</span>
+              <span>🔔 ⊶ 📁+</span>
+            </div>
+            <div class="wb-nav-list">
+              <div class="wb-nav-item"><span>📁 openhanako</span></div>
+              <div class="wb-nav-item"><span>📁 intervie_os</span></div>
+              <div class="wb-nav-item"><span>📁 vphone</span></div>
+              <div class="wb-nav-item"><span>📁 youshi</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center Coordinator Conversation -->
+        <div class="wb-center">
+          <div class="wb-chat-stream">
+            <div class="wb-user-msg">
+              把 <span class="wb-chip-inline">@YOU-1</span> 合盘切回单人盘的逻辑合进 main，顺便跑完 Chromium 和 WebKit 三档高度（390×844、390×664、360×740）回归，线上机器先别动。
+            </div>
+
+            <div class="wb-collapsed-relay">
+              Messages from YOU-1 (worker-a8f2) · 展开查看 4 条内部进度
+            </div>
+
+            <div class="wb-agent-msg">
+              <p>
+                第二轮用触摸里测过了，Chromium 和 WebKit 都跑了，三档高度是 <code>390×844</code>、<code>390×664</code>、<code>360×740</code>。合盘里已经有消息时，左侧能点回单人盘；两对合盘来回切、胶囊上的 ×、「+」选盘，也都切得走。没有新的点不动。
+              </p>
+
+              <!-- Artifact Card -->
+              <div class="wb-artifact-card">
+                <div class="wb-artifact-info">
+                  <div class="wb-play-thumb">▶</div>
+                  <div>
+                    <div style="font-weight:600;color:#f0f3f8;font-size:12.5px;">Entering user details · 回归录屏工件</div>
+                    <div style="font-size:11.5px;color:#8b949e;">2:35 · 48 Steps · 存入 Library/artifacts/</div>
+                  </div>
+                </div>
+                <span class="wb-play-btn">Play</span>
+              </div>
+
+              <p>
+                <span class="wb-chip-inline">⑂ 合盘切回单人盘 #252</span> 已经合进 <code>main</code>，提交是 <code>f31489d</code>。服务器没动，线上还是 <code>d006108</code>。要发布再说一声。
+              </p>
+            </div>
+          </div>
+
+          <!-- Composer & Dynamic Pills -->
+          <div class="wb-composer-wrap">
+            <!-- Question Tray (Toggled) -->
+            <div class="wb-tray" id="questionTray">
+              <div class="wb-tray-head">
+                <span>⚡ Question from YOU-4 (worker-deploy-check) · 1 of 1</span>
+                <span style="cursor:pointer;color:#9ca3af;" onclick="toggleQuestionTray()">收起为胶囊 ▾</span>
+              </div>
+              <div class="wb-tray-q">
+                预发环境 <code>ap-southeast-1</code> 的 Cloudflare Tunnel 白名单还没加新容器 IP，要先只更 staging 还是等你配好一起切？
+              </div>
+              <div class="wb-tray-opts">
+                <span class="wb-tray-opt">1. 先只更 staging，不动生产</span>
+                <span class="wb-tray-opt">2. 暂停等待，我去配 Cloudflare</span>
+                <span class="wb-tray-opt">打开 YOU-4 会话详情 →</span>
+              </div>
+            </div>
+
+            <!-- Dynamic Pills above input -->
+            <div class="wb-pills-row">
+              <span class="wb-pill warn" id="questionPill" style="cursor:pointer;" onclick="toggleQuestionTray()">● Questions · 1</span>
+              <span class="wb-pill">Agents · 1 running, 3 done</span>
+              <span class="wb-pill">Listening · GitHub PRs, main CI</span>
+            </div>
+
+            <!-- Composer Box -->
+            <div class="wb-composer">
+              <div class="wb-composer-left">
+                <span style="font-size:15px;">＋</span>
+                <span>Send follow-up · <code>@</code> 引用任务，<code>#</code> 引用 PR</span>
+              </div>
+              <div class="wb-composer-right">
+                <span>Gemini 4 Argon</span>
+                <span class="wb-send-btn" title="协调者运行时保持 Send，绝不变成 Stop 防误触">Send ↑</span>
+              </div>
+            </div>
+
+            <div class="wb-env-row">
+              <span>💻 Local Worktree (This Mac) + GitHub ▾</span>
+              <span style="white-space:nowrap;">插槽 <code>conversation.input.overlay</code></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Project Panel -->
+        <div class="wb-right">
+          <div class="wb-r-head">
+            <div class="wb-r-title">
+              <span class="wb-proj-icon blue">☺</span>
+              <span>Youshi产品</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="color:#8b949e;font-size:12px;" title="搜索与 Status/PR/Repo 过滤">🔍 ⊶</span>
+              <div class="wb-seg" id="rightSeg">
+                <button type="button" class="active" data-pane="list" onclick="switchRightPane('list', this)">List</button>
+                <button type="button" data-pane="board" onclick="switchRightPane('board', this)">Board</button>
+                <button type="button" data-pane="library" onclick="switchRightPane('library', this)">Library</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pane 1: List -->
+          <div class="wb-r-pane active" id="pane-list">
+            <div class="wb-group-bar">
+              <span>▾ 🟡 Waiting on you · 1</span>
+              <span style="font-size:10.5px;color:#e3b341;">需拍板</span>
+            </div>
+            <div class="wb-task-row" style="background:rgba(210,153,34,0.07);border-color:rgba(210,153,34,0.25);">
+              <span class="wb-task-id">YOU-4</span>
+              <span class="wb-task-title">Staging 灰度验证 — 询问 Cloudflare 白名单策略</span>
+              <span class="wb-pr-pill amber">Waiting</span>
+            </div>
+
+            <div class="wb-group-bar" style="margin-top:4px;">
+              <span>▾ 🟢 Done · 3</span>
+              <span style="font-size:10.5px;color:#6e7681;">自动归档</span>
+            </div>
+            <div class="wb-task-row">
+              <span class="wb-task-id">YOU-1</span>
+              <span class="wb-task-title">合盘切回单人盘 — 已合进 main (f31489d)，服务器仍是 d006108</span>
+              <span class="wb-pr-pill">⑂ #252</span>
+            </div>
+            <div class="wb-task-row">
+              <span class="wb-task-id">YOU-2</span>
+              <span class="wb-task-title">合盘分数 — 已随 d006108 上线</span>
+              <span class="wb-pr-pill">⑂ #228</span>
+            </div>
+            <div class="wb-task-row">
+              <span class="wb-task-id">YOU-3</span>
+              <span class="wb-task-title">Production deploy — youshi.fun is on d006108</span>
+              <span class="wb-pr-pill green">• Trust CF IP</span>
+            </div>
+
+            <div style="margin-top:8px;padding:9px 10px;border-radius:7px;background:#1b1e24;border:1px dashed #2e3440;font-size:11.5px;color:#8b949e;line-height:1.5;">
+              <strong style="color:#c9d1d9;">交互细节：</strong>点击任意任务行（如 <code>YOU-1</code>）弹出 <b>Peek 预览</b>看完整摘要与 PR 状态；双击或点「打开会话」在右栏原地/分屏打开对应 Worker 的 DSH Session。
+            </div>
+          </div>
+
+          <!-- Pane 2: Board -->
+          <div class="wb-r-pane" id="pane-board">
+            <div class="wb-board-grid">
+              <div class="wb-b-col">
+                <div class="wb-b-col-h"><span>Queued</span><span>1</span></div>
+                <div class="wb-b-card">
+                  <span class="wb-task-id">YOU-5</span>
+                  <span>线上 d006108 → f31489d 滚动发布</span>
+                  <span style="font-size:10.5px;color:#7d8592;">依赖 YOU-4</span>
+                </div>
+              </div>
+              <div class="wb-b-col">
+                <div class="wb-b-col-h"><span style="color:#e3b341;">Waiting / Active</span><span>1</span></div>
+                <div class="wb-b-card" style="border-color:rgba(210,153,34,0.45);">
+                  <span class="wb-task-id">YOU-4</span>
+                  <span>Staging 灰度验证</span>
+                  <span class="wb-pr-pill amber" style="align-self:start;">Question</span>
+                </div>
+              </div>
+              <div class="wb-b-col">
+                <div class="wb-b-col-h"><span style="color:#56d364;">Done</span><span>3</span></div>
+                <div class="wb-b-card">
+                  <span class="wb-task-id">YOU-1</span>
+                  <span>合盘切回单人盘</span>
+                  <span class="wb-pr-pill" style="align-self:start;">⑂ #252</span>
+                </div>
+                <div class="wb-b-card">
+                  <span class="wb-task-id">YOU-2</span>
+                  <span>合盘分数上线</span>
+                  <span class="wb-pr-pill" style="align-self:start;">⑂ #228</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pane 3: Library -->
+          <div class="wb-r-pane" id="pane-library">
+            <div class="wb-group-bar">
+              <span>📌 Standing Context (常驻与决策)</span>
+              <span style="font-size:10.5px;color:#6cb6ff;">Git 追踪</span>
+            </div>
+            <div class="wb-lib-row">
+              <span class="wb-lib-name">INDEX.md (目标 + 仓库表 + 硬约束)</span>
+              <span class="wb-pr-pill green">Ratified</span>
+              <span class="wb-age">680 tok</span>
+            </div>
+            <div class="wb-lib-row">
+              <span class="wb-lib-name">decisions/004-synastry-single-switch.md</span>
+              <span class="wb-pr-pill green">Ratified</span>
+              <span class="wb-age">YOU-1</span>
+            </div>
+            <div class="wb-lib-row">
+              <span class="wb-lib-name">runbooks/playwright-3-viewports.md</span>
+              <span class="wb-pr-pill amber">Proposed</span>
+              <span class="wb-age">待巩固</span>
+            </div>
+
+            <div class="wb-group-bar" style="margin-top:6px;">
+              <span>🎬 Artifacts &amp; User Files (工件与参考)</span>
+              <span style="font-size:10.5px;color:#8b949e;">2 项</span>
+            </div>
+            <div class="wb-lib-row">
+              <span class="wb-lib-name">artifacts/YOU-1-touch-regression.webm</span>
+              <span class="wb-age">Video · 2:35</span>
+              <span class="wb-age">11d</span>
+            </div>
+            <div class="wb-lib-row">
+              <span class="wb-lib-name">artifacts/YOU-1-dandelion-390x844.png</span>
+              <span class="wb-age">Image</span>
+              <span class="wb-age">11d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 四层域模型 -->
+<section id="domain">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">03</span>核心架构修正：为什么 <code>Task (YOU-1)</code> 必须与 <code>Worker</code> 解耦？</h2>
+      <p class="sub">
+        Cursor 在 3.26 版本把 Project Notes 正式重构为独立的 Task Tracker。如果把右栏里的任务行直接等同于 <code>dsh-superagent</code> 的 Worker Session，会立刻卡死在以下四个日常场景上。
+      </p>
+    </div>
+
+    <div class="model-chain">
+      <div class="m-node">
+        <span class="rel">Layer 1 · 容器</span>
+        <h3>Project（项目）</h3>
+        <p>跨周/跨月存活的顶层作用域。</p>
+        <ul>
+          <li>任务前缀（如 <code>YOU</code>）与自增计数器</li>
+          <li>唯一常驻协调者 <code>coordinatorSessionId</code></li>
+          <li>关联仓库组 <code>repositories[]</code></li>
+          <li>Git 化的 <code>context/</code> 记忆目录</li>
+        </ul>
+      </div>
+
+      <div class="m-node">
+        <span class="rel">Layer 2 · 计划项</span>
+        <h3>Task（<code>YOU-1</code>）</h3>
+        <p>右栏 <code>List / Board</code> 里的工作卡。</p>
+        <ul>
+          <li>支持父子层级 <code>parentTaskId</code></li>
+          <li>可处于 <code>Queued</code>（尚未派给任何 Worker）</li>
+          <li>状态由协调者或关联 Ticket 自动推进</li>
+          <li>可绑定 <code>specPath</code> 与多个 PR</li>
+        </ul>
+      </div>
+
+      <div class="m-node">
+        <span class="rel">Layer 3 · 授权执行</span>
+        <h3>Ticket &amp; Assignment</h3>
+        <p>直接复用 <code>dsh-superagent</code> 工作层。</p>
+        <ul>
+          <li>持有不可变 <code>Mandate</code> 授权凭证</li>
+          <li>分配独立 Git Worktree 与 <code>worker-*</code> 会话</li>
+          <li>受 <code>WorkerSlots</code> 并发上限与留人槽保护</li>
+          <li>崩了可换新 Assignment 重试同一 Task</li>
+        </ul>
+      </div>
+
+      <div class="m-node">
+        <span class="rel">Layer 4 · 可验证产物</span>
+        <h3>PR &amp; Artifact</h3>
+        <p>解决并行后「人评审带宽不足」的交付物。</p>
+        <ul>
+          <li>GitHub PR 状态自动追踪（CI / Review / Merge）</li>
+          <li>超过 1 个 PR 自动折叠为 <code>[N PRs]</code> 胶囊</li>
+          <li>截图、录屏、调研报告自动归档进 <code>Library</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 六大交互细节契约 -->
+<section class="alt" id="contracts">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">04</span>从 Cursor 3.19–3.27 与 Claude Code 提炼的 6 组交互契约</h2>
+      <p class="sub">
+        这些细节全部来自两家过去半年的迭代补丁与社区高频反馈，提前写进规范可以避免后期返工。
+      </p>
+    </div>
+
+    <div class="grid-2">
+      <article class="card">
+        <span class="badge blue">契约 01 · 两个入口</span>
+        <h3 style="margin-top:10px;">极简新建 + 散装会话中途「收编」</h3>
+        <ul>
+          <li><strong>极简新建（From Scratch）</strong>：弹窗只留 4 项——图标、名称（必填）、一句话北极星 Goal（选填）、关联本地工作区/仓库（选填，允许无仓库纯调研启动）。</li>
+          <li><strong>中途收编（Add to Project）</strong>：你在下方 <code>工作区</code> 普通会话里聊了 20 轮发现是个大活，直接在左栏右键该会话选 <code>加入项目 (Add to Project)</code>。协调者自动读取该会话历史，在项目内生成「建议拆分的 Tasks 与提取的上下文」供你一键确认。</li>
+          <li><strong>防串味规则（Cursor 3.27）</strong>：当焦点在某个 Project 时点左上角全局「＋ 新会话」，新建的是普通独立会话，绝不误继承当前 Project 的后台规则。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <span class="badge green">契约 02 · 协调者防呆</span>
+        <h3 style="margin-top:10px;">发送按钮永不变 Stop + 首句秒回 + 内部通信折叠</h3>
+        <ul>
+          <li><strong>Keep Send, Never Stop（Cursor 3.27）</strong>：协调者运行期间，输入框右侧始终保持 <code>Send</code>（追加/插话 steering），避免用户想发第二条指令时顺手点到 <code>Stop</code> 掐断正在派单的协调者。</li>
+          <li><strong>首句秒回（Cursor 3.26）</strong>：协调者收到消息必须先输出一句确认与第一步打算，再调工具读文件或启动 Worker，消除界面假死感。</li>
+          <li><strong>内部回报单行折叠（Cursor 3.27）</strong>：Worker 发给协调者的常规进度折叠为居中单行 <code>Update from YOU-1</code>；只有协调者正式对人说话时，才点亮左栏未读蓝点。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <span class="badge amber">契约 03 · 阻塞解封</span>
+        <h3 style="margin-top:10px;">主对话输入框上方 Question Tray 直接回答子代理</h3>
+        <ul>
+          <li><strong>Claude Code 的痛点</strong>：子线程卡在提问或权限审批时，跟主协调者说话没用，必须手动点进子线程内部回答。</li>
+          <li><strong>我们的做法（对齐 Cursor 3.20）</strong>：任何后台 Worker 调用 <code>orchestrator_report(human_action)</code> 提问时，主对话输入框上方立即浮出黄色的 <strong>Question Tray</strong>，标明 <code>Question from YOU-4</code> 及预设选项。</li>
+          <li>你在主对话窗口直接点击选项或打字回车，插件后端直接通过 <code>Engine</code> 把回答投递给该 Worker 的专属 Thread，零窗口切换。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <span class="badge purple">契约 04 · 精准引用</span>
+        <h3 style="margin-top:10px;">输入框原生支持 <code>@YOU-1</code> 任务胶囊与 <code>#PR</code> 胶囊</h3>
+        <ul>
+          <li>在项目主对话敲 <code>@</code>，自动列出当前项目的 Tasks（按状态排序，与右栏一致），输入编号或标题关键字即可插入 <code>[@YOU-1]</code> 胶囊。</li>
+          <li>敲 <code>#</code> 搜索并插入项目关联仓库的 PR 或 Issue。</li>
+          <li>对协调者说「按 <code>@YOU-1</code> 的改法把 <code>@YOU-5</code> 也处理了，合进 <code>#252</code> 同一分支」时，后端直接解析为精确的 <code>ticketId</code> 与 <code>threadKey</code>，零歧义。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <span class="badge blue">契约 05 · 状态收敛</span>
+        <h3 style="margin-top:10px;">右栏 6 态分组 + 15 秒低成本实时摘要 + Peek 抽屉</h3>
+        <ul>
+          <li><strong>状态优先级排序</strong>：<code>Waiting on you</code>（黄，等回答/报错）→ <code>For Review</code>（紫/绿，PR 待审）→ <code>In Progress</code>（蓝，运行中）→ <code>Queued</code>（灰，排队中）→ <code>Idle</code> → <code>Done</code>（折叠）。</li>
+          <li><strong>双速行摘要（Claude Agent View 机制）</strong>：Worker 运行中每 15 秒直接取其最新工具动作刷一行状态（0 额外模型调用）；每轮 Turn 结束写一句精炼结论。</li>
+          <li><strong>空白不扰民（Cursor 3.27）</strong>：新建项目尚未产生任何 Task 或 Library 文件时，右栏默认保持收起；第一个 Task 创建瞬间自动滑出。</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <span class="badge red">契约 06 · 生命周期</span>
+        <h3 style="margin-top:10px;">完整的 Pause / Archive / True Delete 三态控制</h3>
+        <ul>
+          <li><strong>Pause（一键冻结）</strong>：立即中断所有运行中 Worker 轮次、暂停 GitHub/飞书轮询与定时任务，顶部显示 <code>Paused</code> 横幅，点 Resume 恢复。</li>
+          <li><strong>Archive（归档隐藏）</strong>：停止所有后台活动与 PR 监听，将项目从左栏移入归档过滤视图，随时可 Unarchive。</li>
+          <li><strong>True Delete（真删除，修补 Cursor 社区头号差评）</strong>：二次确认后，彻底删除项目 SQLite 数据、<code>context/</code> 目录与受管本地 worktree，但<strong>绝不删除已推向远端 GitHub 的分支和 PR</strong>。</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 05 Library 与三层上下文治理 -->
+<section id="Context">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">05</span><code>Library</code> 与三层上下文治理：怎么让项目越用越聪明，而不是变成垃圾场？</h2>
+      <p class="sub">
+        记忆系统的共识是「写入门控比检索算法重要」。我们把 Claude Code 的三层边界、Cursor 的 <code>Library</code> 视图与本地 Git 版本控制合在一起。
+      </p>
+    </div>
+
+    <div class="table-wrap">
+      <table class="context-table">
+        <colgroup><col class="c-layer"><col class="c-path"><col class="c-body"><col class="c-read"><col class="c-write"></colgroup>
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>存放位置</th>
+            <th>装什么内容</th>
+            <th>谁能读</th>
+            <th>谁能写与晋升机制</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-key" data-label="层级">1. 仓库级规范</td>
+            <td data-label="存放位置">各仓库根目录 <code>AGENTS.md</code> / <code>CLAUDE.md</code></td>
+            <td data-label="装什么内容">只跟这一个仓库相关的构建、测试、目录结构与代码风格（由 DSH 原生 <code>@deepseek-ai/dsh-agent-instructions</code> 自动加载）</td>
+            <td data-label="谁能读">进入该仓库 Worktree 的 Worker</td>
+            <td data-label="谁能写与晋升机制">人维护，随代码仓库 Git 提交</td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="层级">2. 项目级常驻索引</td>
+            <td data-label="存放位置"><code>&lt;projectDir&gt;/context/INDEX.md</code></td>
+            <td data-label="装什么内容"><strong>严格限制 ≤ 1,200 tokens</strong>：北极星目标（Goal）、关联仓库表、跨仓硬约束、以及指向下方切片文件的检索目录（“改 X 前先读 Y”）</td>
+            <td data-label="谁能读">协调者 + 所有 Worker（常驻注入 System Prompt）</td>
+            <td data-label="谁能写与晋升机制">人和协调者直接写；Worker 不可直接改 <code>INDEX.md</code></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="层级">3. 决策与 Spec 切片</td>
+            <td data-label="存放位置"><code>context/decisions/*.md</code><br><code>context/specs/*.md</code></td>
+            <td data-label="装什么内容">每个技术决策或任务拆分方案一个短 Markdown，头部带 YAML：<code>status: active | superseded | disputed</code>、<code>supersedes: ...</code>、<code>source: YOU-1</code></td>
+            <td data-label="谁能读"><strong>协调者 + 相关 Worker</strong> 按需读取</td>
+            <td data-label="谁能写与晋升机制">协调者起草；人在对话中拍板后标为 <code>ratified</code>；旧决策被替代时标 <code>superseded</code></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="层级">4. 操作手册（Runbooks）</td>
+            <td data-label="存放位置"><code>context/runbooks/*.md</code></td>
+            <td data-label="装什么内容">Worker 摸索出的「怎么跑某服务测试、本地环境坑、验证命令」</td>
+            <td data-label="谁能读"><strong>仅 Worker 按需读</strong>（绝不塞给协调者，防协调者自己下场排障）</td>
+            <td data-label="谁能写与晋升机制">Worker 调 <code>project_context_propose</code> 写入（初态 <code>proposed</code>）；<strong>仅当关联 Ticket 成功 Completed / PR Merged 时才正式转正</strong></td>
+          </tr>
+          <tr>
+            <td class="col-key" data-label="层级">5. 工件与参考资料</td>
+            <td data-label="存放位置"><code>context/artifacts/*</code><br><code>context/uploads/*</code></td>
+            <td data-label="装什么内容">人拖进项目的参考文档（User files），以及 Worker 产出的回归截图、录屏、性能报告（Project files）</td>
+            <td data-label="谁能读">人在右栏 <code>Library</code> 预览；Agent 按路径引用</td>
+            <td data-label="谁能写与晋升机制">人拖拽上传，或 Worker 完成任务时附带产出</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid-2" style="margin-top:18px;">
+      <div class="card">
+        <p class="kicker">防污染机制一 · 本地 Git 自动版本化</p>
+        <h3><code>context/</code> 目录本身就是一个独立 Git 仓库</h3>
+        <p>
+          新建 Project 时自动在 <code>&lt;stateDir&gt;/projects/&lt;id&gt;/context/</code> 执行 <code>git init</code>。每次工具写入或巩固自动生成一条带 <code>Task ID / Session ID</code> 的 commit。你在右栏 <code>Library</code> 里不仅能直接手改 Markdown，还能一键看 <code>diff</code> 和回滚任意 Agent 写坏的记忆；未来接云端 Worker 时，直接 <code>git push/pull</code> 即可跨机同步。
+        </p>
+      </div>
+      <div class="card">
+        <p class="kicker">防污染机制二 · 证伪与反驳通道（Dispute Channel）</p>
+        <h3>任何过期的经验都必须能被后续 Worker 一键挂起</h3>
+        <p>
+          半年后接口改了，旧 Runbook 变成毒药。当新 Worker 按某篇 Runbook 执行报错时，调用 <code>project_context_dispute(path, reason, output)</code>：该文件立即标为 <code>disputed</code>（后续 Worker 读到时顶部带红色警告），同时在右栏顶部浮出一条待办，人点「用新结论替换 / 删除旧文」即可完成清理。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 dsh-superagent 改造落点与 Schema -->
+<section id="surgery">
+  <div class="wrap">
+    <div class="shead">
+      <h2><span class="num">06</span>工程落地：在 <code>dsh-superagent</code> 上动哪三刀？</h2>
+      <p class="sub">
+        我们已经核实了 <code>/private/tmp/dsh-super</code> 的全部源码与本机 DSH <code>0.2.1-alpha.2</code> 的插槽契约。只需改动以下核心位置，就能把被动值班流水线升级为交互式 Projects 引擎。
+      </p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card">
+        <span class="badge red">第一刀 · 解开入口死锁</span>
+        <h3 style="margin-top:10px;">新增内建 <code>project-chat</code> Source</h3>
+        <p>
+          <strong>现状问题</strong>：<code>src/app/tools/main.ts:49</code> 的 <code>orchestrator_route</code> 只能消费落盘的 <code>trigger_id</code>；人在 DSH 打开协调者会话打字走的是 <code>user/message</code> 事件，不产生 <code>Trigger</code>，协调者无法建单。
+        </p>
+        <p>
+          <strong>改法</strong>：在 <code>src/app/sessions.ts:114</code> 捕获人在协调者会话发出的 <code>user/message</code>，自动包装为 <code>source='project'</code>、<code>strength='explicit'</code> 的一等 <code>Trigger</code> 写入 <code>Engine.receive</code>，天然继承全套 <code>Mandate</code> 授权与审计链。
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="badge amber">第二刀 · 解开拆单死锁</span>
+        <h3 style="margin-top:10px;">放开 <code>1 Trigger → N Tasks/Tickets</code></h3>
+        <p>
+          <strong>现状问题</strong>：<code>src/core/evals.ts:137,311</code> 按 <code>triggerId</code> 做唯一幂等拦截，且 <code>ticketId = key('ticket', evaluation.id)</code>，导致一个需求无法拆成多个并行子任务。
+        </p>
+        <p>
+          <strong>改法</strong>：将幂等键改为 <code>(triggerId, taskKey)</code>，<code>ticketId = key('ticket', evaluation.id, taskKey)</code>；同时在 <code>sources/github.ts:69</code> 将线程键改为 <code>github:&lt;owner&gt;/&lt;repo&gt;#&lt;number&gt;</code>，支持单项目挂载多个仓库不串线。
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="badge green">第三刀 · 解开左栏污染</span>
+        <h3 style="margin-top:10px;">收敛 Workspace 与挂载三栏 UI</h3>
+        <p>
+          <strong>现状问题</strong>：<code>src/app/sessions.ts:141</code> 为每个 Ticket 的 Worktree 调用 <code>workspaceRegistry.create(cwd)</code>，导致跑 20 个 Ticket 就在 DSH 左栏「工作区」刷出 20 个顶层文件夹。
+        </p>
+        <p>
+          <strong>改法</strong>：Worker 会话创建后立即调用 <code>workspaceRegistry.archiveSession(workerSessionId)</code> 从原生左栏「工作区」隐藏（仍可正常后台运行并在右栏点开）；前端在左栏注入扁平 <code>Projects</code> 区，在右栏注册 <code>Project (List | Board | Library)</code> Tab。
+        </p>
+      </article>
+    </div>
+
+    <div class="schema-split">
+      <pre class="codebox"><span class="c">-- 新增进 Store (src/app/store.ts) 的核心表结构</span>
+<span class="k">CREATE TABLE</span> project (
+  id TEXT PRIMARY KEY,              <span class="c">-- 如 "proj_youshi_prod"</span>
+  prefix TEXT NOT NULL,             <span class="c">-- 任务编号前缀，如 "YOU"</span>
+  next_seq INTEGER NOT NULL DEFAULT 1,
+  name TEXT NOT NULL,               <span class="c">-- "Youshi产品"</span>
+  icon TEXT NOT NULL,               <span class="c">-- 图标与颜色标识</span>
+  goal TEXT NOT NULL DEFAULT <span class="s">''</span>,    <span class="c">-- 一句话北极星目标</span>
+  coordinator_session_id TEXT NOT NULL,
+  context_dir TEXT NOT NULL,        <span class="c">-- Git 化的 Library 目录</span>
+  repos_json TEXT NOT NULL,         <span class="c">-- 关联的本地/远端仓库列表</span>
+  state TEXT NOT NULL DEFAULT <span class="s">'active'</span>, <span class="c">-- active | paused | archived</span>
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+<span class="c">-- 右栏 List / Board 展示的 Task（与 Worker 解耦）</span>
+<span class="k">CREATE TABLE</span> project_task (
+  id TEXT PRIMARY KEY,              <span class="c">-- 如 "YOU-1"</span>
+  project_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  parent_task_id TEXT,              <span class="c">-- 支持父子任务聚合</span>
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT <span class="s">''</span>, <span class="c">-- 15s 刷新或完结结论</span>
+  status TEXT NOT NULL,             <span class="c">-- queued | in_progress | waiting | review | done</span>
+  repo_alias TEXT,                  <span class="c">-- 指向项目下的哪个仓库</span>
+  spec_path TEXT,                   <span class="c">-- 关联的 Library spec 路径</span>
+  active_ticket_id TEXT,            <span class="c">-- 当前绑定的 dsh-superagent Ticket</span>
+  prs_json TEXT NOT NULL DEFAULT <span class="s">'[]'</span>,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+<span class="c">-- Library 文件索引（正文留在磁盘 Git 仓库里，支持 grep/diff/手改）</span>
+<span class="k">CREATE TABLE</span> project_library_item (
+  project_id TEXT NOT NULL,
+  rel_path TEXT NOT NULL,           <span class="c">-- 如 "decisions/004-synastry.md"</span>
+  scope TEXT NOT NULL,              <span class="c">-- index | decision | runbook | spec | artifact | user</span>
+  status TEXT NOT NULL,             <span class="c">-- ratified | proposed | disputed | superseded</span>
+  source_task_id TEXT,              <span class="c">-- 溯源：如 "YOU-1"</span>
+  tokens INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, rel_path)
+);</pre>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="card">
+          <h4>DSH 客户端无侵入注入清单（<code>src/client/index.tsx</code>）</h4>
+          <ul>
+            <li><strong>左栏 <code>Projects</code> 列表</strong>：监听 <code>.kB3qhq_regionArea</code>，在其顶部挂载扁平项目列表组件；自动响应 <code>.kB3qhq_wide</code> 折叠态。</li>
+            <li><strong>普通会话「加入项目」菜单</strong>：通过 <code>ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'add-to-project' })</code> 原生注入会话右键菜单。</li>
+            <li><strong>中栏底部动态胶囊与 Question Tray</strong>：通过 <code>ctx.slots.register({ name: 'conversation.input.overlay' })</code> 与 <code>conversation.composer.dock</code> 注入 <code>[Questions]</code>、<code>[Agents]</code>、<code>[Listening]</code>。</li>
+            <li><strong>右栏 <code>Project</code> 面板</strong>：通过 <code>ctx.sidebarRightTabs.register({ id: 'dsh-projects/project', kind: 'project' })</code> 注册原生可分屏、可全屏的右栏 Tab。</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h4>为什么这套结构最稳？</h4>
+          <p>
+            1. <strong>不丢 <code>dsh-superagent</code> 的 1.5 万行测试资产</strong>：<code>Engine</code> 内部的 Gate、Mandate、Effect 重试队列、Outbox 保序和 WorkerSlots 原封不动。<br>
+            2. <strong>不改 DSH 客户端源码</strong>：升级 DSH 版本不会冲掉任何代码，只靠标准插件插槽工作。<br>
+            3. <strong>本地与云端自然衔接</strong>：<code>Library</code> 是标准 Git 仓库，<code>Executor</code> 是独立 Port，现在跑本机 Worktree，以后随时加远端 VM Executor。
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Milestones -->
+    <div style="margin-top:32px;">
+      <h3 style="margin-bottom:14px;">四阶段实施路线图（Milestones）</h3>
+      <div class="ms-grid">
+        <article class="ms-card">
+          <div class="ms-top"><span class="ms-id">M1 · 底座解锁</span><span class="ms-dur">2–3 天</span></div>
+          <h4>打通对话建单、1 拆 N 与多仓标识</h4>
+          <dl>
+            <dt>改动</dt>
+            <dd>新增内建 <code>project</code> Source；<code>Evals</code> 幂等键支持 1 拆 N；GitHub 线程键加 <code>owner/repo</code> 前缀；Worker 会话自动归档隐藏左栏噪音。</dd>
+            <dt>验收</dt>
+            <dd>在 DSH 中直接对协调者说一句话，能拆出 <code>YOU-1</code>、<code>YOU-2</code> 两个并行 Worktree 任务且左栏不乱。</dd>
+          </dl>
+        </article>
+
+        <article class="ms-card">
+          <div class="ms-top"><span class="ms-id">M2 · 三栏工作台 UI</span><span class="ms-dur">4–5 天</span></div>
+          <h4>左栏 Projects + 右栏 List / Board</h4>
+          <dl>
+            <dt>改动</dt>
+            <dd>实现左栏 <code>Projects</code> 区块与新建弹窗；注册右栏 <code>Project</code> Tab（<code>List | Board</code> 视图、6 态分组、PR 徽章、Peek 抽屉）。</dd>
+            <dt>验收</dt>
+            <dd>点击左栏 <code>Youshi产品</code>，中栏打开协调者对话，右栏联动显示 <code>YOU-1..3</code> 任务列表与实时状态。</dd>
+          </dl>
+        </article>
+
+        <article class="ms-card">
+          <div class="ms-top"><span class="ms-id">M3 · Library 与记忆</span><span class="ms-dur">4–5 天</span></div>
+          <h4>Git 化上下文 + 角色分流 + 反驳通道</h4>
+          <dl>
+            <dt>改动</dt>
+            <dd>右栏 <code>Library</code> 视图；<code>INDEX.md</code> 常驻注入 + <code>decisions / runbooks / specs / artifacts</code>；Ticket 完结自动巩固与 Dispute 待办。</dd>
+            <dt>验收</dt>
+            <dd><code>YOU-1</code> 跑通的三档视口测试命令与录屏自动进 <code>Library</code>，<code>YOU-2</code> 启动时直接复用零试错。</dd>
+          </dl>
+        </article>
+
+        <article class="ms-card">
+          <div class="ms-top"><span class="ms-id">M4 · 精修交互闭环</span><span class="ms-dur">3–4 天</span></div>
+          <h4>Question Tray + @引用 + 收编会话</h4>
+          <dl>
+            <dt>改动</dt>
+            <dd>输入框上方 <code>Questions / Agents / Listening</code> 动态胶囊与直答托盘；<code>@YOU-1</code> 任务引用；普通会话右键 <code>Add to Project</code>；Pause/Archive/Delete。</dd>
+            <dt>验收</dt>
+            <dd>子代理提问可在主窗口一键回答；散装旧会话可一键收编进 Project。</dd>
+          </dl>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>DSH Projects 架构与交互设计规范 · 基于 Cursor 3.19–3.27 Release Notes、Claude Code Projects 文档、DeepSeek <code>dsh-superagent-prototype</code> 源码及本机 DSH <code>0.2.1-alpha.2</code> 拆解定稿。</p>
+    <p>仓库：<code>dsh-projects</code> · 设计规范：<code>docs/dsh-project-layer.html</code> · 交接摘要：<code>docs/handoff.md</code></p>
+  </div>
+</footer>
+
+<script>
+  function switchRightPane(pane, btn) {
+    document.querySelectorAll('.wb-r-pane').forEach(el => {
+      el.classList.toggle('active', el.id === 'pane-' + pane);
+    });
+    document.querySelectorAll('#rightSeg button').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-pane') === pane);
+    });
+    if (btn && btn.classList.contains('wb-btn')) {
+      btn.parentElement.querySelectorAll('.wb-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    } else {
+      const topBtns = document.querySelectorAll('.wb-controls .wb-switch-group:first-child .wb-btn');
+      const map = { list: 0, board: 1, library: 2 };
+      topBtns.forEach((b, idx) => b.classList.toggle('active', idx === map[pane]));
+    }
+  }
+
+  function toggleQuestionTray() {
+    const tray = document.getElementById('questionTray');
+    const btn = document.getElementById('trayToggleBtn');
+    const visible = tray.classList.toggle('visible');
+    if (btn) btn.classList.toggle('active', visible);
+  }
+</script>
+</body>
+</html>

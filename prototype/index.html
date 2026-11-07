@@ -3501,6 +3501,8 @@
   .member-chip.on .mc-check { display: inline-flex; }
   .member-chip.on .mc-role { display: none; }
 
+  .menu-item.is-derived { opacity: .45; cursor: not-allowed; }
+  .menu-item .hint { margin-left: auto; font-size: 11px; color: var(--ink-4); }
   .to-members { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--ink-4); font-size: 11px; }
   .to-avatars { display: inline-flex; }
   .to-ava {
@@ -6937,6 +6939,19 @@
   }
 
   function confirmDeleteTask(t) {
+    /* 执行过的任务（有 worker 或 PR）只能取消，不能物理删除：保留审计与分支（domain-model.md §2）。 */
+    if (t.worker || (t.prs || []).length) {
+      openModal(`<div class="modal sm" role="dialog" aria-modal="true" aria-label="取消任务">
+        <div class="modal-head"><h3>「${esc(t.title)}」已经执行过</h3><button class="iconbtn sm x" data-close aria-label="关闭">${I.x}</button></div>
+        <div class="modal-body"><p class="confirm-copy">执行过的任务不能删除，以免丢失执行记录。可以改为取消：任务移入 Canceled，本地 worktree 按回收策略清理，分支和 PR 保留。</p></div>
+        <div class="modal-foot"><button class="btn ghost" data-close>保留</button><button class="btn danger" id="cancelTaskBtn">改为取消</button></div>
+      </div>`);
+      $('#cancelTaskBtn', $('#overlay'))?.addEventListener('click', () => {
+        closeModal();
+        if (t.status !== 'canceled') setTaskStatus(t.id, 'canceled');
+      });
+      return;
+    }
     openModal(`<div class="modal sm" role="dialog" aria-modal="true" aria-label="删除任务">
       <div class="modal-head"><h3>删除「${esc(t.title)}」</h3><button class="iconbtn sm x" data-close aria-label="关闭">${I.x}</button></div>
       <div class="modal-body"><p class="confirm-copy">任务会从项目列表中移除，执行轨迹与关联的本地 worktree 记录一并删除。已推送的分支和 PR 不受影响。</p></div>
@@ -7141,16 +7156,28 @@
     }));
   }
 
+  /* 显示状态由事实推导（docs/architecture/domain-model.md §3）：
+     For Review / Waiting on you 只能由 PR、验证结果或提问产生，人不能手动设置。 */
+  const DERIVED_ONLY = {
+    review: '「For Review」由 PR 或验证结果自动决定，不能手动设置',
+    waiting: '「Waiting on you」由 worker 提问或失败自动决定，不能手动设置'
+  };
+  function manualStatusBlock(t, st) {
+    if (DERIVED_ONLY[st]) return DERIVED_ONLY[st];
+    if (st === 'working') {
+      const active = activeBlockers(proj(), t);
+      if (active.length) return `仍被 ${active.map((b) => b.id).join('、')} 阻塞`;
+      if (envMeta(t.env || S.env).status === 'off') return '运行环境不可用';
+    }
+    return null;
+  }
+
   function setTaskStatus(id, st) {
     const t = proj().tasks.find((x) => x.id === id);
     if (!t || t.status === st) return;
-    const active = activeBlockers(proj(), t);
-    if (st === 'working' && active.length) {
-      toast(`仍被 ${active.map((b) => b.id).join('、')} 阻塞`);
-      return;
-    }
-    if (st === 'working' && envMeta(t.env || S.env).status === 'off') {
-      toast('运行环境不可用');
+    const blocked = manualStatusBlock(t, st);
+    if (blocked) {
+      toast(blocked);
       return;
     }
     t.status = st;
@@ -7179,9 +7206,9 @@
     if (!t) return;
     const el = openFloating(anchor, `
       <div class="menu-head">Status</div>
-      ${GROUP_ORDER.map((st) => `<button class="menu-item" data-set-status="${st}">
+      ${GROUP_ORDER.map((st) => `<button class="menu-item${DERIVED_ONLY[st] && t.status !== st ? ' is-derived' : ''}" data-set-status="${st}"${DERIVED_ONLY[st] ? ` title="${esc(DERIVED_ONLY[st])}"` : ''}${DERIVED_ONLY[st] && t.status !== st ? ' aria-disabled="true"' : ''}>
         <span class="mi">${statusIcon(st)}</span>${ST[st].label}
-        ${t.status === st ? `<span class="check">${I.check}</span>` : ''}
+        ${t.status === st ? `<span class="check">${I.check}</span>` : DERIVED_ONLY[st] ? '<span class="hint">自动</span>' : ''}
       </button>`).join('')}
     `, { align: 'left' });
     $$('[data-set-status]', el).forEach((b) => b.addEventListener('click', () => {
@@ -10782,6 +10809,12 @@
       S.dragTarget = null;
       clearDropMarks();
       if (from && target && from.id !== target.id) {
+        const crossBlock = from.status !== target.status ? manualStatusBlock(from, target.status) : null;
+        if (crossBlock) {
+          toast(crossBlock);
+          render();
+          return;
+        }
         const fromIdx = p.tasks.indexOf(from);
         p.tasks.splice(fromIdx, 1);
         let idx = p.tasks.indexOf(target);

@@ -17,3 +17,6 @@ build/
 
 # Logs
 *.log
+
+# Spike live-run evidence (JSON-RPC logs, model output); attach to the report PR, do not commit by default.
+spikes/*/evidence/

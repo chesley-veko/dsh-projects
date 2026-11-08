@@ -1,0 +1,54 @@
+# S3 spike: coordinator test preset (cordis.patch.yml FRAGMENT — merge into
+# the lab profile's cordis.patch.yml on dsh-01, do not apply as-is).
+#
+# Two preset variants:
+#   A  spike-s3-coordinator         — fence on, deny = all inherited globals.
+#   B  spike-s3-coordinator-bad-deny — fence on, deny = inherited + one
+#                                      nonexistent tool name (step 2: the
+#                                      mount must throw, the session must not
+#                                      be announced).
+#
+# The fence plugin is linked from the lab profile's package.json (see
+# profile-package.json.fragment in this directory); its source lives in
+# spikes/s3/fence-plugin/ of the dsh-projects repo and must be synced to
+# dsh-01 before the run (branch spike/s3-tool-fence, NOT pushed — the
+# commander arranges the transfer).
+#
+# INDEX text is passed verbatim via config.indexText (see index-fixture.md).
+# Keep interpolate: false inside the plugin (src/index.ts) so the sentinels
+# survive prompt assembly byte-for-byte.
+- insert:
+    - id: spike-s3-coordinator-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: spike-s3-coordinator
+        name: spike-s3 协调者（测试）
+        description: S3 测试用协调者 preset：只保留 Projects 工具，屏蔽全部继承工具。不要手动选用。
+        order: 80
+        plugins:
+          - id: spike-s3-fence
+            name: '@spike/s3-coordinator-fence'
+            config:
+              indexText: |
+                # Projects INDEX (spike-s3 fixture)
+                - P-ALPHA — 哨兵 ALPHA-7F3A — 罗定征婚视频站：youshi.fun，月浏览 18,379 次
+                - P-BETA — 哨兵 BETA-9C21 — dsh-projects：DeepSeek Harness 上的 Projects 工作台
+                - P-GAMMA — 哨兵 GAMMA-44D8 — superagent：GitHub 评审编排器原型
+    - id: spike-s3-coordinator-bad-deny-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: spike-s3-coordinator-bad-deny
+        name: spike-s3 协调者（坏 deny 测试）
+        description: S3 步骤 2 用：deny 里含一个不存在的工具名，挂载应当抛错。不要手动选用。
+        order: 81
+        plugins:
+          - id: spike-s3-fence
+            name: '@spike/s3-coordinator-fence'
+            config:
+              extraDeny:
+                - tool_that_does_not_exist_xyz
+              indexText: |
+                # Projects INDEX (spike-s3 fixture)
+                - P-ALPHA — 哨兵 ALPHA-7F3A — 罗定征婚视频站：youshi.fun，月浏览 18,379 次
+                - P-BETA — 哨兵 BETA-9C21 — dsh-projects：DeepSeek Harness 上的 Projects 工作台
+                - P-GAMMA — 哨兵 GAMMA-44D8 — superagent：GitHub 评审编排器原型

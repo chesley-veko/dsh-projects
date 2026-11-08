@@ -1,0 +1,13 @@
+# S3 spike: profile package.json FRAGMENT (merge into the lab profile's
+# package.json on dsh-01).
+#
+# The fence plugin is a local link: sync spikes/s3/fence-plugin/ to dsh-01
+# first (same transfer as the preset fragment), then add the dependency and
+# run `pnpm install` in the profile directory, then `pnpm --filter
+# @spike/s3-coordinator-fence build` (or `pnpm build` inside the plugin dir).
+{
+  "dependencies": {
+    "dsh-superagent": "link:<LAB_HOME>/../dsh-superagent",
+    "@spike/s3-coordinator-fence": "link:<SPIKE_DIR>/fence-plugin"
+  }
+}

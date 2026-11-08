@@ -2,8 +2,18 @@
 
 前置：按 `test-fixtures.md` 备好 worktree 目录、空目录、路由扩展
 （deepseek-v4-pro 已进路由 models 列表）、全局默认快照。所有调用
-走 `plugin-interface.md` 的假设接口；接口与实际不一致时先改调用
-方式，不改结论口径。
+走 `plugin-interface.md` 的接口，由 `driver-plugin/` 实现（见
+`driver-plugin/README.md` 的 "Contract diffs" 全表；下面只写影响本
+文件调用方式的点）。接口与实际不一致时先改调用方式，不改结论口径。
+
+- **调用头**：所有请求须带 `x-orchestrator-request: 1`（`x-spike-request: 1`
+  也接受）。下文 curl 示例省略该头，实操时必须带。
+- **agentPreset 省略时**：驱动用部署默认 preset（`resolve(undefined)`），
+  不是“lab 默认 worker preset”（没有这个可解析概念）。检查项 2 的
+  worker B 只传 agentOptions、不传 agentPreset 时，preset 即默认。
+- **prompt 返回**：除 `reply/model/calls/usage` 外还有 `timedOut`、
+  `modelSource`、`events`、`startSeq`、`endSeq`、`errors`；无 usage
+  记录时 `inputTokens/outputTokens` 为 null（不是 0）。
 
 ## 检查项 1 — 预生成 sessionId 后创建
 
@@ -51,7 +61,10 @@
   是否有任何与“无仓库”相关的错误或降级。
 - 证据：两次 inspect 的 cwd 字段；两次模型回复全文。
 - 反例：cwd 指向一个**不存在**的目录再创建一次，记录错误原文与
-  create 是否拒绝（meta.cwd 是“已验证的绝对路径”，预期应拒绝）。
+  create 是否拒绝。注意：驱动不建目录、只透传 cwd；源码只找到绝对路
+  径校验（session header validation），未找到存在性校验——因此
+  “预期应拒绝”可能不成立；若创建成功，如实记为“harness 未校验 cwd
+  存在性”，不得把驱动改成先 mkdir 再创建。
 
 ## 检查项 4 — setup 注册 Projects 工具并被调用
 
@@ -87,6 +100,10 @@
   （记录错误原文）；`inspect` 查不到 live agent；但会话存储目录下
   该 sessionId 的事件文件存在（setup 文档：已提交的 Session 事件保留）。
   随后调 `POST /spike/agents.resume`，记录能否找回、找回后状态。
+  注意（驱动已实现 `abortAfterMs`，但存在竞态）：preset mount 很快，
+  200ms 的 abort 通常落在 setup 完成之后——此时 create 成功、随后
+  的 abort 返回 `noop / signal-detached`。这不是驱动故障：如实记录
+  “signal 窗口已关闭”，并以 inspect + 后续 prompt 为准判断会话状态。
 - 6b（创建完成后 abort）：对检查项 1 已创建的 live worker 调
   `POST /spike/agents.abort`。期望：返回 `noop / signal-detached`，
   会话继续 live；发一轮提示词确认仍能回复。

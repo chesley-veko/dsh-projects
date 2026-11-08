@@ -1,0 +1,15 @@
+# Bundle patch for the S4 driver plugin.
+# Host-only: one node entry, no browser client half. All @deepseek-ai
+# packages stay external so the plugin runs against the host's installed
+# DSH build.
+#
+# NOTE (unverified in source): whether a bundle row may omit the `client`
+# entry was not established from the harness sources — every in-repo
+# precedent with a `bundles:` row (e.g. dsh-spike-s1) declares both entries.
+# If the profile fails to load with a complaint about a missing client
+# entry, add a stub client entry mirroring dsh-spike-s1's shape and note it
+# in the live report.
+bundles:
+  dsh-spike-s4-driver:
+    node:
+      entry: lib/index.js

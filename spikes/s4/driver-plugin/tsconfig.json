@@ -1,0 +1,1 @@
+{"compilerOptions":{"allowImportingTsExtensions":true,"declaration":true,"lib":["ES2024","DOM"],"module":"NodeNext","moduleResolution":"NodeNext","noUncheckedIndexedAccess":true,"rewriteRelativeImportExtensions":true,"skipLibCheck":true,"strict":true,"target":"ES2024","types":["node"],"verbatimModuleSyntax":true},"include":["src/**/*.ts","tsdown.config.ts"]}

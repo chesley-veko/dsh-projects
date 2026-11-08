@@ -4,6 +4,33 @@
 - 基线：deepseek-harness@fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159，dsh-superagent-prototype@8c32a9d，其他版本：（待填：dsh-01 实际构建版本、node、OS、模型）
 - 实验代码：spike/s4-native-worker@（待填 SHA）
 
+## driver 实现状态（2026-11-08，live 前）
+
+驱动插件 `spikes/s4/driver-plugin/`（`dsh-spike-s4-driver`，独立测试
+profile `spikes/s4/profile/`，端口 3093，不加载 superagent）已实现
+`plugin-interface.md` 的全部端点，无缺接口项：
+
+| 端点 | 状态 | 备注 |
+|---|---|---|
+| `GET /spike/version` | 已实现 | 版本经 `dsh --version` / `npm root -g` 读取，失败记 null |
+| `GET /spike/global-default` | 已实现 | `agentDefaultModel.currentSelection()` |
+| `GET /spike/workspaces` | 已实现 | `workspaceRegistry.list()` 直接映射 |
+| `POST /spike/agents.create` | 已实现 | setup 变体 `"projects-probe"` / `"none"`；`abortAfterMs` 经 creation signal 实现（有竞态，见 README） |
+| `POST /spike/agents.abort` | 已实现 | 创建中 `aborted`，创建后 `noop / signal-detached` |
+| `POST /spike/agents.prompt` | 已实现 | `followup` + `whenIdle()`，经 `session/event` 订阅收集当轮事件；`model` 取自最新 `request/header`，绝不回显请求值 |
+| `POST /spike/agents.resume` | 已实现 | 另接受可选 `agentPreset` / `agentOptions` / `setup`；preset 默认取恢复出的 header |
+| `GET /spike/agents.inspect` | 已实现 | `exists` = live 或本进程已知；持久化存在性只能由 resume 证明 |
+| `GET /spike/tools.visible` | 已实现 | `tools.schemas(scope)`（屏蔽后可见集） |
+| `GET /spike/system-prompt` | 已实现 | `assemble()`；返回 `{name, position, text}`，`order` 无公开接缝（见下） |
+| `POST /spike/agents.compact` | 已实现 | `compactNow`；无安全区间返回 literal `null` |
+
+契约偏差（实现与假设不一致处，全表见 `driver-plugin/README.md`
+"Contract diffs"）：`system-prompt` 返回 `position` 而非 `order`
+（`assemble()` 不输出 `order`）；`inspect.exists` 不含持久化存在性；
+`create` 的 `cwd` 只透传、不建目录、不校验存在性；`abortAfterMs`
+与 setup 完成竞态；`resume` 接受可选扩展字段。结论仍为空，待 live
+运行后填。
+
 ## 结论摘要（3 句以内）
 （待填）
 
@@ -35,11 +62,18 @@
 （待填）
 
 ## 未完成与推断项（明确标注）
-- spike 插件接口是假设（spikes/s4/plugin-interface.md），live 前须与
-  A 路 S1 插件实际接口对齐；对齐前的任何偏差以实际接口为准。
+- spike 插件接口已实现（`spikes/s4/driver-plugin/`，见上节“driver 实现状态”），
+  不再是纯假设；但 live 运行尚未做，表中结论仍为空。S3 的驱动缺口由同一
+  插件解：S3 用 fence preset + `setup: "none"` 创建协调者，走同一
+  `/spike/agents.prompt` / `/spike/agents.compact` / `/spike/tools.visible` /
+  `/spike/system-prompt` 端点。
 - 以下为推断（源码），未算作通过：agents.create / setup 回滚 /
   resume / workspaceRegistry 与 sessionController 的区别机制（见
   spikes/s4/README.md 接缝表，引 deepseek-harness@fcc0ad46 行号）。
+- 驱动实现时的推断（源码）：`agent.ctx` 上的 `session/event` 订阅能收到
+  该 agent 的事件；`ctx.agentDefaultModel` / `ctx.compaction` 不注入也可读；
+  bundle 行可省略 `client` 条目——三者均在 `driver-plugin/README.md`
+  标注，live 冒烟时验证。
 - 路由临时扩展 deepseek-v4-pro 的 revert 情况：（待填）。
 
 ## 复现步骤
@@ -47,7 +81,10 @@
    安排传输）。
 2. 按 spikes/s4/test-fixtures.md 备好目录、路由扩展、全局默认快照、
    版本与角色模型复查。
-3. 确认 spike 插件接口与 plugin-interface.md 一致（不一致先改
-   checks.md 的调用方式）。
+3. 按 `spikes/s4/driver-plugin/README.md` 安装并启动驱动（standalone
+   profile 端口 3093，或挂进 lab profile 走 3082），跑冒烟 curl：
+   health / version / global-default / workspaces / 一次 create+inspect+
+   prompt+compact。驱动与 plugin-interface.md 的偏差见该 README
+   "Contract diffs"，已同步进 checks.md。
 4. 按 spikes/s4/checks.md 与 prompts.md 逐项执行，取证按
    plugin-interface.md 的返回字段存档。

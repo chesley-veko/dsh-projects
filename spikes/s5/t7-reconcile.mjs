@@ -37,9 +37,11 @@ const [command, ...cmdArgs] = splitCmd(executorCmd);
 let code = 1;
 const client = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc.jsonl'), label });
 try {
-  await client.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
-  const s1 = await client.request('session/new', { cwd }, { timeoutMs: 120000 });
-  const s2 = await client.request('session/new', { cwd }, { timeoutMs: 120000 });
+  await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+  // live 发现：session/new 的 mcpServers 为必填，缺了报 -32602（2026-11-08）。
+  const s1 = await client.request('session/new', { cwd, mcpServers: [] }, { timeoutMs: 120000 });
+  // live 发现：session/new 的 mcpServers 为必填，缺了报 -32602（2026-11-08）。
+  const s2 = await client.request('session/new', { cwd, mcpServers: [] }, { timeoutMs: 120000 });
   run.check('两次相同 session/new 各自成功', typeof s1.sessionId === 'string' && typeof s2.sessionId === 'string', `id1=${s1.sessionId} id2=${s2.sessionId}`);
   const distinct = s1.sessionId !== s2.sessionId;
   run.info('两次 session/new 是否去重', distinct ? '未去重：返回两个不同 sessionId' : '去重：返回同一 sessionId');

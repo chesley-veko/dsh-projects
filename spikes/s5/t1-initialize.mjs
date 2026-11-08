@@ -6,14 +6,16 @@
  *   node t1-initialize.mjs --executor-cmd "dsh --profile acp" --log-dir ./evidence/<run>/t1
  *
  * 步骤：
- *   1. 发 initialize（protocolVersion 由客户端提议 '1.0'；服务端按自身
+ *   1. 发 initialize（protocolVersion 由客户端提议数字 1；服务端按自身
  *      唯一版本回应，见 fcc0ad46 packages/acp/acp/src/index.ts initialize）。
  *   2. 把响应原样写入 initialize-<label>.json（能力声明存档）。
  *   3. 反例 A：同一连接上再发一次 initialize（protocolVersion 为空串），记录实际行为。
  *   4. 反例 B：发一个未知方法 session/nope，记录 JSON-RPC 错误码。
  *
  * 不断言 protocolVersion 的具体取值：SDK 1.4.0 的常量值以运行时为准，
- * 只断言它是非空字符串并记录。
+ * 只断言它是数字并记录。
+ * （2026-11-08 live 发现：原脚本发字符串 '1.0'，服务端以 -32602 拒绝
+ *  "Invalid input: expected number, received string"；改为数字 1 后通过。）
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,13 +33,13 @@ const client = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc
 let code = 1;
 try {
   const res = await client.request('initialize', {
-    protocolVersion: '1.0',
+    protocolVersion: 1,
     clientInfo: { name: 'spike-s5', version: '0.1.0' },
     clientCapabilities: {},
   }, { timeoutMs: 60000 });
   const archivePath = join(logDir, `initialize-${label}.json`);
   writeFileSync(archivePath, JSON.stringify(res, null, 2) + '\n');
-  run.check('initialize 返回 protocolVersion（非空字符串）', typeof res.protocolVersion === 'string' && res.protocolVersion.length > 0, `protocolVersion=${res.protocolVersion}`);
+  run.check('initialize 返回 protocolVersion（数字）', typeof res.protocolVersion === 'number', `protocolVersion=${res.protocolVersion}`);
   run.check('initialize 返回 agentInfo.name', typeof res.agentInfo?.name === 'string' && res.agentInfo.name.length > 0, `name=${res.agentInfo?.name} version=${res.agentInfo?.version ?? ''}`);
   run.check('initialize 返回 agentCapabilities', typeof res.agentCapabilities === 'object' && res.agentCapabilities !== null, JSON.stringify(res.agentCapabilities));
   run.info('agentCapabilities 原样', JSON.stringify(res.agentCapabilities));

@@ -37,8 +37,9 @@ let code = 1;
 const client = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc-1.jsonl'), label });
 let sessionId;
 try {
-  await client.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
-  const created = await client.request('session/new', { cwd }, { timeoutMs: 120000 });
+  await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+  // live 发现：session/new 的 mcpServers 为必填，缺了报 -32602（2026-11-08）。
+  const created = await client.request('session/new', { cwd, mcpServers: [] }, { timeoutMs: 120000 });
   sessionId = created.sessionId;
   run.check('session/new 成功', typeof sessionId === 'string', `sessionId=${sessionId}`);
   const p1 = await client.request('session/prompt', {
@@ -61,7 +62,7 @@ try {
   // 新进程续接。
   const client2 = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc-2.jsonl'), label });
   try {
-    await client2.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+    await client2.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
     const listed = await client2.request('session/list', { cwd }, { timeoutMs: 60000 });
     const found = (listed.sessions ?? []).some((s) => s.sessionId === sessionId);
     run.check('session/list 能发现该会话', found, `listed=${(listed.sessions ?? []).length} 个`);
@@ -93,7 +94,7 @@ try {
   // 这里只记录实际行为：未知 id 与错 cwd 必须被拒）。
   const client3 = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc-3.jsonl'), label });
   try {
-    await client3.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+    await client3.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
     try {
       await client3.request('session/resume', { sessionId: '00000000-0000-0000-0000-000000000000', cwd }, { timeoutMs: 60000 });
       run.check('反例 A：resume 未知 session 应被拒', false, '服务端接受了未知 id');

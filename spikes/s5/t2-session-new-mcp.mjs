@@ -55,7 +55,7 @@ let code = 1;
 const client = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc.jsonl'), label });
 try {
   run.check('假 Engine 就绪', await engineReady(), 'http://127.0.0.1:8931/health');
-  await client.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+  await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
 
   const mcpServers = [{
     name: 'projects',

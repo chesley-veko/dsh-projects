@@ -63,8 +63,9 @@ client.onRequest('session/request_permission', async (params) => {
 });
 
 try {
-  await client.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
-  const created = await client.request('session/new', { cwd }, { timeoutMs: 120000 });
+  await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s5', version: '0.1.0' }, clientCapabilities: {} });
+  // live 发现：session/new 的 mcpServers 为必填，缺了报 -32602（2026-11-08）。
+  const created = await client.request('session/new', { cwd, mcpServers: [] }, { timeoutMs: 120000 });
   const sessionId = created.sessionId;
   run.check('session/new 成功', typeof sessionId === 'string', `sessionId=${sessionId}`);
 

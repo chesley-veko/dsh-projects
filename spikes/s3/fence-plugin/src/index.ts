@@ -66,11 +66,15 @@ export interface Config {
   indexOrder?: number
 }
 
-/** Schemastery config for Loader defaults. */
+/** Schemastery config for Loader defaults. Schemastery object fields are
+ * optional by default (`.required()` is what makes one required); there is
+ * no `.optional()` method — that is Zod syntax. Live 2026-11-08: the
+ * `.optional()` calls threw `z.array(...).optional is not a function` at
+ * module load and `tsc --noEmit` failed on the same three lines. */
 export const Config: z<Config> = z.object({
-  extraDeny: z.array(z.string()).optional(),
-  indexText: z.string().optional(),
-  indexOrder: z.number().optional(),
+  extraDeny: z.array(z.string()),
+  indexText: z.string(),
+  indexOrder: z.number(),
 })
 
 /**

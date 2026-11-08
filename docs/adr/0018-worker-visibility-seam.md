@@ -10,7 +10,7 @@
 
 - M0 前必须在实际锁定的 DSH 版本上证明一个真正的 session list/filter seam，能隐藏或归组 `project-worker`，且不影响 `openSession`、子代理、文件上传、协调者重建和运行中会话。
 - `sidebar.session.row.*` 只能用于徽标、项目入口和状态装饰，不得当作隐藏能力写入验收结论。
-- 若插件侧前缀、会话行 slot 或其他降级方案无法从列表过滤 worker，则 M0 阻断；只有已验证的 DSH `SessionOrigin=project-worker` / list filter 补丁或等价真实接缝才能解除阻断。任何上游补丁都要保留可验证的失败行为，不以 mock 代替。
+- （2026-11-09 修订：veko 接受 ADR-0003 的降级方案，补丁未合入时 worker 留在「未分组」并以前缀与徽标区分，M0 不再被本条阻断；「从左栏移除」仍只在补丁合入并重跑 S1 后宣称。）原文：若插件侧前缀、会话行 slot 或其他降级方案无法从列表过滤 worker，则 M0 阻断；只有已验证的 DSH `SessionOrigin=project-worker` / list filter 补丁或等价真实接缝才能解除阻断。任何上游补丁都要保留可验证的失败行为，不以 mock 代替。
 - worker 会话不能通过 `origin=subagent` 伪装，也不能归档活动会话来达到隐藏效果。过滤方案必须保留 worker 内部子代理能力和文件上传能力。
 
 ## S1 实测（2026-11-08）

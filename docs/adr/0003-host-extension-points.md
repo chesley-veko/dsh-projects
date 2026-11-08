@@ -48,6 +48,12 @@
 - 首版左栏观感与原型不同（项目入口在 panellist）。
 - 宿主升级不会打碎插件。
 - S1 实测后 M0 阻断成立：插件侧没有可用的列表过滤接缝，解除条件只有已验证的 `SessionOrigin = 'project-worker'` 补丁或等价真实接缝（[ADR-0018](0018-worker-visibility-seam.md)）；补丁是否向上游提交待批准。
+- **降级方案（veko 已于 2026-11-09 接受）**：补丁未合入时，M0 不再被 S1 阻断，左栏按以下方式交付：
+  - worker 照常以普通会话创建，留在左栏「未分组」，不归档、不伪装成 `subagent`；
+  - worker 会话标题统一加前缀（如 `[项目名·任务]`），并用 `sidebar.session.row.trailing` 加 worker 徽标，只做区分，不宣称隐藏；
+  - 项目入口与任务视图仍以 panellist / 右栏为主，worker 从任务行打开（`openSession`）；
+  - `SessionOrigin='project-worker'` 补丁合入并重跑 S1 后，再切换到「worker 不出现在未分组」。
+- **补丁拆分**：会话可见性（`project-worker`）与视图过滤（`conversation.view` 的 `when(session)`、`activeViewId`）拆成两个独立补丁，各自有降级：视图补丁未合入时，项目 tab 全局可见、内容按会话门控，composer 接管按会话生效（S2 结论）。
 
 ## 备选方案
 - DOM 注入：每次发版都可能失效，放弃。

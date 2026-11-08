@@ -131,13 +131,23 @@ node t1-initialize.mjs --executor-cmd "dsh --profile acp" --log-dir ./evidence/<
 | 项 | 脚本 | 测什么 | 关键断言 / 证据 | 反例 |
 |---|---|---|---|---|
 | 1 | `t1-initialize.mjs` | `initialize` 能力声明原样存档 | `initialize-<label>.json` 原样存档；`protocolVersion` 非空（值以运行时为准）；`agentInfo`、`agentCapabilities` 齐全 | 重复 initialize（空 `protocolVersion`）；未知方法 `session/nope` 应报 `-32601` |
-| 2 | `t2-session-new-mcp.mjs` | `session/new` 带 `mcpServers`，列出并调用薄代理工具 | `session/new` 返回 `sessionId` + `configOptions`；`tool_call` 通知含 `projects_echo`；假 Engine 日志收到 `spike-s5-probe` | 同名 MCP 服务器；相对路径 `command`；不存在的 `command`（均应被拒） |
+| 2 | `t2-session-new-mcp.mjs` | `session/new` 带 `mcpServers`，列出并调用薄代理工具 | `session/new` 返回 `sessionId` + `configOptions`；`tool_call` 的 **title 精确等于 `mcp__projects__projects_echo`**；假 Engine 日志收到 `spike-s5-probe`；薄代理日志出现该 `tools/call` | 同名 MCP 服务器、相对路径 `command`、不存在的 `command`（条目 schema 合法时应被拒）；同一不存在的 `command` 但缺 `env`（会被 ACP SDK 静默丢弃，`session/new` 成功——这是旧版「未挂载」的根因） |
 | 3 | `t3-set-config-option.mjs` | `set_config_option` 切 model / effort，下一轮生效 | effort 切到另一值后 `configOptions` 当前值已变，下一轮 prompt 正常；model 有第二值时切、prompt、切回；路由单模型时如实记「未测（路由单模型）」，不临时加模型 | 未知 value id；未知 sessionId；未知 effort（均应报 `invalidParams`，选择不变） |
-| 4 | `t4-request-permission.mjs` | `session/request_permission` 挂起数分钟后回应原 RPC | 挂起 120 秒期间原 prompt 不结束；allow→工具继续；reject→工具被拒；cancel→prompt 取消结束 | `--permission-outcome bogus`（未知 optionId），记录执行者实际反应；180 秒内无权限请求则记「未触发」（换备用 prompt：让执行者写文件或跑 `rm` 类高敏命令前先确认审批策略） |
+| 4 | `t4-request-permission.mjs` | `session/request_permission` 挂起数分钟后回应原 RPC | 挂起 120 秒期间原 prompt 不结束；allow→升级重试执行、文件写出；reject→工具被拒、文件不写；cancel→审批取消（工具错误，`stopReason` 仍是 `end_turn`）；bogus→未知 optionId 按 rejected 处理（fail closed） | `--permission-outcome bogus`；默认 workspace-write 下 workspace 内写/删**不会**触发审批，prompt 必须越界写（`/var/tmp/...`）并在被拒后带 `sandbox_permissions: danger-full-access` + justification 重试一次（见 §7 源码条件） |
 | 5 | `t5-cancel.mjs` | `session/cancel` 在工具调用进行中取消 | `projects_sleep` 进行中取消：prompt 有明确 `stopReason`；`projects_slow_write` 半写文件块数/字节数如实记录；取消后下一轮 prompt 正常 | 空闲时 cancel；连续两次 cancel |
 | 6 | `t6-resume-load.mjs` | `session/resume` / `load`，进程退出后续接 | 关闭 stdin 后进程退出；新进程 `session/list` 发现会话，`session/resume` 续接，模型记得暗号 BLUEBIRD | resume 未知 id；resume 错 cwd；已激活会话再 resume；`session/load` 探一次（源码无此方法，预期 `-32601`，以实际为准） |
 | 7 | `t7-reconcile.mjs` | 按外部 id 查询/去重（ADR-0015 探针） | 两次相同 `session/new` 是否返回同一 id；两次相同 prompt 是否两次 turn；`session/list` 可见性；编造外部 id `ext-123` 做 resume 应被拒。预期「不支持，恢复走 unknown」，以证据为准 | 请求模式里无外部 id / 幂等键字段（源码依据见 §2） |
 | 8 | `t8-credentials.mjs` | 订阅登录与 API Key 两种凭据下的可测性 | 输出 `credentials-gap.json`：每行「执行者 × 凭据 → 可测 / 缺凭据 + 被挡住的步骤」。只记有/无布尔值，不记凭据值 | ——（本项本身就是缺口审计；不 spawn 执行者） |
+
+### MCP 条目形状（2026-11-09 修正）
+
+- stdio 条目必须显式带 `env: []`（ACP SDK 1.4.0 的 `zMcpServerStdio` 要求
+  `env: EnvVariable[]`；缺了会被 `vecSkipError` 静默丢弃，`session/new` 照样成功）。
+  这是 2026-11-08 首轮表现「MCP 未挂载」的直接原因，不是 dsh-acp 不支持 stdio。
+- 模型侧工具名是 `mcp__<serverName>__<rawName>`（`mcp-client` 的命名契约），
+  例：`mcp__projects__projects_echo`。工具调用断言必须按精确名匹配，禁用 JSON 子串。
+- 权限请求的触发条件不是「写文件/rm」本身，而是**越界**写触发沙箱拒绝后，
+  模型带 `sandbox_permissions` 的升级重试。详见报告「根因与源码核实」。
 
 证据：每项子目录含 `rpc.jsonl`（脱敏 JSON-RPC 往返）、`summary.json`、
 专项产物（`initialize-<label>.json`、`fake-engine.jsonl`、

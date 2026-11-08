@@ -118,7 +118,12 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import s from '@deepseek-ai/schemastery'
 
 export const name = 'dsh-spike-s4-driver'
-export const inject = ['agents', 'agentPresets', 'workspaceRegistry', 'webServer']
+// `agentDefaultModel`, `sessions` are deployment-global services (lab profile
+// entries `agent-default-model`, `session`); `compaction` is NOT: the compaction
+// engine is mounted per preset (preset group `compaction` -> compaction-basic),
+// so it is read from the agent's scope in the compact endpoint, not injected
+// here (a required inject would keep this plugin inactive at the profile root).
+export const inject = ['agents', 'agentPresets', 'workspaceRegistry', 'webServer', 'agentDefaultModel', 'sessions']
 export const Config = s.object({})
 export type SpikeS4DriverConfig = ReturnType<typeof Config>
 
@@ -598,6 +603,11 @@ export async function apply(ctx: Context, _config: SpikeS4DriverConfig): Promise
           try {
             sessionId = requireSessionId(record)
             agentOptions = parseAgentOptions(record)
+            // `AgentRegistry.create` does not apply the deployment default model
+            // itself: every entry point does (experimental/webhook/src/session.ts:57-58
+            // spreads `ctx.agentDefaultModel.currentSelection()`). Mirror that so an
+            // omitted `agentOptions` means "global default model" (S4 check 1).
+            agentOptions ??= { ...ctx.agentDefaultModel.currentSelection() }
             setup = parseSetupVariant(record)
           } catch (error) {
             json(res, 400, { error: errorText(error) })
@@ -787,6 +797,11 @@ export async function apply(ctx: Context, _config: SpikeS4DriverConfig): Promise
           try {
             sessionId = requireSessionId(record)
             agentOptions = parseAgentOptions(record)
+            // `AgentRegistry.create` does not apply the deployment default model
+            // itself: every entry point does (experimental/webhook/src/session.ts:57-58
+            // spreads `ctx.agentDefaultModel.currentSelection()`). Mirror that so an
+            // omitted `agentOptions` means "global default model" (S4 check 1).
+            agentOptions ??= { ...ctx.agentDefaultModel.currentSelection() }
             setup = parseSetupVariant(record)
           } catch (error) {
             json(res, 400, { error: errorText(error) })
@@ -871,8 +886,20 @@ export async function apply(ctx: Context, _config: SpikeS4DriverConfig): Promise
             json(res, 404, { error: `unknown live session "${sessionId}"` })
             return
           }
-          if (ctx.compaction === undefined) {
-            json(res, 503, { error: 'compaction service is not available in this profile' })
+          // The compaction engine lives inside the agent's preset composition and
+          // its preset group isolates `compaction`, so neither the profile root nor
+          // `agent.ctx` can resolve it (live 2026-11-08: 503 for every preset).
+          // `agentPresets.serviceFor(agent, name)` is the sanctioned seam that reads
+          // a service supplied inside an Agent's isolated preset group
+          // (agent-preset-registry/src/mount.ts, serviceForMount).
+          let compaction: Context['compaction'] | undefined
+          try { compaction = ctx.agentPresets.serviceFor(agent, 'compaction') } catch { compaction = undefined }
+          if (compaction === undefined) { try { compaction = agent.ctx.compaction } catch { compaction = undefined } }
+          if (compaction === undefined) {
+            json(res, 503, {
+              error: 'compaction service is not available in this agent scope',
+              detail: 'compaction-basic is mounted by the agent preset; this agent preset provides no compaction engine',
+            })
             return
           }
           const collected: SessionEvent[] = []
@@ -881,7 +908,7 @@ export async function apply(ctx: Context, _config: SpikeS4DriverConfig): Promise
           })
           let result: Awaited<ReturnType<Context['compaction']['compactNow']>>
           try {
-            result = await ctx.compaction.compactNow(agent, AbortSignal.timeout(COMPACT_TIMEOUT_MS))
+            result = await compaction.compactNow(agent, AbortSignal.timeout(COMPACT_TIMEOUT_MS))
           } catch (error) {
             json(res, 409, { error: errorText(error) })
             return

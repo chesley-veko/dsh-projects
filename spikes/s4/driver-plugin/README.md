@@ -229,3 +229,36 @@ curl -s $H -X POST $BASE/spike/agents.resume \
 - The driver keeps its agent records in memory only. After a service
   restart the map is empty: `inspect` reads `exists: false` for
   pre-restart sessions until `resume` re-registers them (check 7).
+
+## Live fixes after retry #2 (dsh-01, 2026-11-08)
+
+Retry #2 left four endpoints broken (`/spike/version`, `/spike/global-default`,
+`/spike/agents.inspect`, `/spike/agents.compact`) and check 4's `setup:"none"`
+counter-example false-negative. Fixed in this retry; details and evidence in
+`../docs/spike/reports/S4-native-worker.md` and `../checks.md` results.
+
+1. Missing `inject` — the driver now declares
+   `inject = ['agents','agentPresets','workspaceRegistry','webServer','agentDefaultModel','sessions']`.
+   `agentDefaultModel` (entry `agent-default-model`) and `sessions` (entry
+   `session`) are deployment-global services and are safe required injects.
+2. `compaction` is **not** a profile-root service: dsh-web-app disables the
+   top-level `compaction-basic`, and each agent preset mounts its own
+   `compaction` group (isolate + compaction-basic). A required `compaction`
+   inject would keep this plugin inactive at the profile root, so
+   `POST /spike/agents.compact` reads the engine from the agent's scope
+   (`agent.ctx.compaction`) and answers 503 with a detail when that preset has
+   none. Verified live: the standard preset provides it.
+3. `agentOptions` omitted no longer means "agent without a model".
+   `AgentRegistry.create` does **not** apply the deployment default model
+   itself — every entry point applies it (`experimental/webhook/src/session.ts:57-58`
+   spreads `ctx.agentDefaultModel.currentSelection()`). The driver mirrors that
+   for `agents.create` / `agents.resume`, so S4 check 1's "no agentOptions =
+   global default" is the real path. The reported `model` still comes from the
+   turn's `request/header`, never from the request.
+4. The module-instance root cause behind check 4's false negative is fixed on
+   the lab host, not in this plugin: the lab profile carried a second copy of
+   `@deepseek-ai/dsh-tools`/`dsh-scope`, so the `tools` service's `scopeOf()`
+   used a different `Symbol('dsh.scope')` and `agentCtx.tools.register(probe)`
+   silently registered globally. Fix: `spikes/s3/relink-host-packages.sh`
+   (profile duplicates symlinked to the host install copies). See
+   `spikes/s3/README.md` "Live 环境修复".

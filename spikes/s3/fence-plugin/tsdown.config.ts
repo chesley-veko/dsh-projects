@@ -10,4 +10,10 @@ export default defineConfig({
   dts: true,
   outDir: 'lib',
   clean: true,
+  // Keep @deepseek-ai/* as runtime imports: bundling a second copy of
+  // dsh-scope/dsh-tools creates a second module instance whose Symbol
+  // differs from the host's, so scopeOf() returns undefined inside the
+  // host's tools service (live 2026-11-08: tools.restrict() threw
+  // "requires a scoped context"). S3 live fix, see ../README.md.
+  external: [/^@deepseek-ai\//],
 })

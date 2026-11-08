@@ -1,6 +1,6 @@
 # S3 协调者工具围栏与 INDEX 注入（B 路）
 
-状态：实验准备完成，待指挥者调度 live 运行（dsh-01）。
+状态：live 运行完成（retry #3，2026-11-08，dsh-01）——结论见 `../docs/spike/reports/S3-coordinator-fence.md`。
 分支：`spike/s3-tool-fence`（自 main 233365a）。实验代码不进 main。
 
 ## 要回答的问题（任务书 §3 S3）
@@ -62,3 +62,44 @@
 
 被屏蔽的工具在模型侧不可见且调用被拒；compaction 后 INDEX 完整；
 缓存命中率不因注入而归零。
+
+## Live 环境修复（2026-11-08 retry #3，dsh-01）
+
+retry #2 的 coordinator 创建失败（`tools.restrict() requires a scoped context`）不是 fence
+设计问题，而是 lab profile 的模块重复实例：
+
+1. profile 的 `pnpm-workspace.yaml` 把本插件的 `devDependencies`（`@deepseek-ai/cordis`、
+   `dsh-scope`、`dsh-tools`、`schemastery` 等）以 hoisted 方式装进了
+   `$LAB/profiles/superagent/node_modules/@deepseek-ai/`，与 dsh 宿主安装目录
+   （`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai`）形成两份模块实例。
+2. `tools` 服务由 profile 那份 `dsh-tools` 提供时，它内部的 `scopeOf()` 读的是 profile 那份
+   `dsh-scope` 的模块内 `Symbol('dsh.scope')`；agent scope 标签却由宿主那份 `dsh-scope` 的
+   `createScope()` 打上。两个 Symbol 不同 → `scopeOf(this.ctx) === undefined` →
+   `tools.restrict()` 抛错；同一根因下 `tools.register()` 在 setup 里找不到 scope，会把工具
+   静默注册成全局工具（S4 检查 4 的 `spike_projects_probe` 泄漏即此）。
+3. 运行时实证（fence `apply()` 内临时 `createRequire` + `appendFileSync` 日志）：fence 自身
+   解析到宿主副本（`/opt/npm/.../dsh-scope`），`scopeOf(ctx)` 与 `scopeOf(ctx.tools.ctx)` 都是
+   有效 scope 对象，唯独 `restrict()` 内部仍判定 undefined —— 即两份 `dsh-scope`；把 profile
+   重复包换成指向宿主副本的软链后，同一个 create 立即成功。
+
+修复：
+
+- `spikes/s3/relink-host-packages.sh`（本目录）：把 profile 下重复的 `@deepseek-ai/*` 换成
+  指向宿主安装副本的软链（Node ESM 以 realpath 作模块身份，软链后共享同一实例）。
+  **profile 再跑 `pnpm install` 会重建重复副本，装完要重跑本脚本。**
+- `fence-plugin/tsdown.config.ts` 增加 `external: [/^@deepseek-ai\//]`：构建期不得把
+  `dsh-scope`/`dsh-tools` 打进产物（bundling 同样会造出第二份实例）。
+- 顺带修掉 driver 侧缺口（见 `spikes/s4/driver-plugin/README.md`）：`inject` 补
+  `agentDefaultModel`/`sessions`；`compaction` 不在 profile 根（由 preset 内的
+  compaction-basic 提供且被 isolate），compact 端点改从
+  `agentPresets.serviceFor(agent, 'compaction')` 取；`agentOptions` 省略
+  时由驱动套用 `ctx.agentDefaultModel.currentSelection()`（`ctx.agents.create` 本身不套默认
+  模型，参考实现 `experimental/webhook/src/session.ts:57-58` 是调用方套的）。
+
+组合事实（影响结论口径）：preset 之间不互相继承，`spike-s3-coordinator` 只挂 fence 插件，
+标准 preset 的 `bash`/`read`/`write` 等工具从未进入该组合；因此 1b 里它们「不可见」由 preset
+组合与 fence 共同决定，而 `working_directory`（全局工具）才是 fence 的 `restrict` 直接屏蔽项、
+`spike_decoy_shell` 是 guard 的直接拦截项。
+
+修复后的 retry #3 结果见 `docs/spike/reports/S3-coordinator-fence.md`、逐项证据在
+`spikes/s3/evidence/`（gitignored），live 记录见 `evidence-checklist.md`。

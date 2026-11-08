@@ -26,6 +26,28 @@
         description: S3 测试用协调者 preset：只保留 Projects 工具，屏蔽全部继承工具。不要手动选用。
         order: 80
         plugins:
+          # Step 3 (compaction) needs the compaction engine in THIS preset:
+          # presets do not inherit each other and dsh-web-app disables the
+          # top-level compaction-basic, so without this group
+          # POST /spike/agents.compact has no engine in the agent scope
+          # (live 2026-11-08 retry #3: 503 "compaction service is not available").
+          # /spike/agents.compact reads it through
+          # agentPresets.serviceFor(agent, 'compaction') because the group isolates it.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
           - id: spike-s3-fence
             name: '@spike/s3-coordinator-fence'
             config:

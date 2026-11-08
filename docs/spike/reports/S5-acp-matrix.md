@@ -18,7 +18,7 @@ dsh --profile acp 的 ACP 基础能力可用：initialize、resume/load 续接�
 | 1. `initialize` 能力声明 | 支持 | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t1/`、`initialize-dsh-acp.json` | protocolVersion=1（数字）；agentInfo deepseek-harness-acp 0.0.1；见下原文 |
 | 2. `session/new` + MCP 薄代理（列出/调用） | 部分 | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t2/`、`evidence/20261108-0331-probe-t2/` | 本轮模型称 "projects MCP server was never mounted"，假 Engine 调用 0 次；单独探测轮成功回显一次；0334 轮 300s 超时，37 次 tool_call、0 次 Engine 调用 |
 | 3. `set_config_option` 切 model / effort，下一轮生效 | 部分 | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t3/` | 未知 model/effort 均被拒 -32602；但 configOptions 里 model 与 reasoning_effort 均为 current=null、values=[]，切换 SKIP（路由单模型） |
-| 4. `session/request_permission` 挂起后回应（允许/拒绝/取消） | 未测（BLOCKED） | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t4-allow\|reject\|cancel\|bogus/` | 四轮均 exit 2：180 秒内未触发权限请求，prompt 自行 end_turn；README 备用提示词未尝试，待补测 |
+| 4. `session/request_permission` 挂起后回应（允许/拒绝/取消） | 未测（BLOCKED） | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t4-allow\|reject\|cancel\|bogus/` | 四轮均 exit 2：180 秒内未触发权限请求，prompt 自行 end_turn；2026-11-08 补测（见下「t4 复测」）：写文件与 rm 两类备用提示词各两轮，四轮仍 exit 2、仍未触发，t4 仍为 BLOCKED |
 | 5. `session/cancel` 工具调用进行中取消 | 部分 | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t5/` | 两次 cancel 后 stopReason=cancelled、下一轮正常；但模型未调 projects_sleep/slow_write，主流程未验证；任何一轮均未生成 projects-mcp.jsonl（harness 日志缺口） |
 | 6. `session/resume` / `load`，进程退出后续接 | 支持 | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t6/`（rpc-1/2/3 三组） | 续接后模型记得暗号 BLUEBIRD；`session/load` 报 -32601（确认无此方法） |
 | 7. 按外部 id 查询/去重（ADR-0015 探针） | 支持（按当前语义） | 未测（缺凭据） | 未测（缺凭据） | `evidence/20261108-0342-dsh-acp/t7/` | 两次相同 session/new 返回两个不同 id（未去重）；编造外部 id resume 被拒；异常：session/list 返回 13 个会话但不含刚建的 s1/s2，待确认 |
@@ -56,7 +56,7 @@ dsh --profile acp 的 ACP 基础能力可用：initialize、resume/load 续接�
 
 ## 未完成与推断项（明确标注）
 
-- t4 未完成（BLOCKED）：README 备用提示词（写文件或跑高敏感命令）未尝试；补测后再填结论。
+- t4 未完成（BLOCKED）：2026-11-08 补测已试 README 备用提示词（写文件、rm 高敏感命令），四轮仍未触发权限请求，见下「t4 复测」一节；结论仍为 BLOCKED。
 - Claude Code 与 Codex 两列未测（缺凭据）；macOS 未覆盖（只跑了 Linux）。
 - t2 的 MCP 挂载不稳定、t7 的 list 异常：现象已记录，根因未查（推断：与模型侧是否实际挂载/会话激活状态有关，未证实）。
 - 两处测试脚本缺陷已在 live 中发现并修复（只修在 dsh-01 的 `/tmp/s5-fixed` 副本，分支未动时跑出决定性一轮；本提交 0110daf 已把修复并回分支，`node --check` 全过）：
@@ -89,3 +89,18 @@ cd ~/workspace/dsh-projects && git checkout spike/s5-acp-matrix
 ## 审核
 
 （Hark 审核后填。）
+
+## t4 复测（2026-11-08，dsh-01）
+- 目的：补测 README 备用提示词（写文件、rm 类高敏感命令）；原决定性一轮（20261108-0342-dsh-acp）四轮均 BLOCKED。
+- 环境：dsh 0.2.2-rc.1、node v22.23.3；DSH_HOME=/data/home/workspace/dsh-superagent-lab；模型 opencode-go / deepseek-v4.1-flash（lab 路由，dump-config 与 3082 /orchestrator/api/models 均已验证）；lab 服务 3082 正常，未重启。
+- 方法：分支脚本未动；仅在 /tmp/s5-fixed 副本上做两个变体（diff 仅 prompt 一行，node --check 通过）：t4-request-permission-write.mjs（写文件）、t4-request-permission-rm.mjs（rm）。分配：allow-once 与 cancel 用写文件，reject-once 与 bogus 用 rm；每轮 --hold-seconds 120，权限请求等待上限 180 秒；工作目录 /tmp/spike-s5-work；rm 目标为每轮前新建的一次性 t4-scratch.txt，写文件目标为 t4-permission-test.txt。
+- 写文件 prompt：Write a file named t4-permission-test.txt in the workspace containing the text t4 permission test. Report the result. Do not do anything else.
+- rm prompt：Run the shell command rm t4-scratch.txt in the workspace and report the output. Do not do anything else.
+- 结果（四轮全部 BLOCKED，exit 2，permissionRequested=false，rpc.jsonl 中 session/request_permission 出现 0 次）：
+  - allow-once（写文件）：sessionId e62fd7a3-3a30-4491-9c07-abd92c53c8f；prompt 12:40:48.996Z 发出，12:41:02.754Z 以 end_turn 结束（约 14 秒）；脚本等满 180 秒后判定 BLOCKED（summary 12:43:49.181Z）。模型思考「We need write file. Use write tool. No skill matches. Just create file.」，直接调用 write 工具写出 t4-permission-test.txt（18 字节，内容 t4 permission test），未请求权限；客户端无回应可作。
+  - reject-once（rm）：sessionId cff5ef6d-1264-4b33-a215-490460b9fc7f；prompt 12:46:30.045Z 发出，12:46:42.996Z 以 end_turn 结束（约 13 秒）；脚本等满 180 秒后判定 BLOCKED（summary 12:49:30.227Z）。模型直接调用 bash 执行 rm t4-scratch.txt（12:46:40.641Z），文件被删，未请求权限；客户端无回应可作。
+  - cancel（写文件）：sessionId 38d66d50-6f6d-4f77-bb5a-d4e496aa1b43；prompt 12:51:55.426Z 发出，12:52:06.078Z 以 end_turn 结束（约 11 秒）；脚本等满 180 秒后判定 BLOCKED（summary 12:54:55.569Z）。模型直接调用 write 工具再次写出 t4-permission-test.txt，未请求权限；客户端无回应可作。
+  - bogus（rm）：sessionId 349ebe17-64ed-47ab-99fd-ca70bbe71377；prompt 12:57:33.249Z 发出，12:57:42.108Z 以 end_turn 结束（约 9 秒）；脚本等满 180 秒后判定 BLOCKED（summary 13:00:33.408Z）。模型直接调用 bash 执行 rm t4-scratch.txt，文件被删，未请求权限；客户端无回应可作，bogus optionId 未被行使。
+- 结论：t4 仍未完成（BLOCKED）；S5 总体结论仍为「部分完成」，不变。理由：README 备用提示词现已全部试过，写文件与 rm 两类高敏感操作均被模型直接执行、一次权限请求都未触发；allow/reject/cancel/bogus 四种回应均未被实际行使，session/request_permission 仍未被验证通过。原报告「M0 之前须用高敏感操作提示词补测，补测通过前不得把权限确认设计在 dsh-acp 的这条回路」仍然成立，补测结果是未通过。
+- 环境教训（复测前两轮失败，均已归档在证据目录）：新开终端默认无 DSH_HOME，dsh 走 shipped profile，模型回落到 deepseek-official 并报缺 DEEPSEEK_API_KEY（-32603）；导出 DSH_HOME 后模型回到 opencode-go，但 shell 无 OPENCODE_API_KEY，llm-pi-ai 报缺凭据（-32603）。两项均需在启动测试的 shell 里就绪：DSH_HOME=/data/home/workspace/dsh-superagent-lab，OPENCODE_API_KEY 由 lab start.sh 载入本 shell 环境变量（仅环境变量，不打印、不落地、不进证据与报告）。lab 服务 3082 全程正常，未重启；lab profile 未改动。
+- 证据：spikes/s5/evidence/20261108-t4-retest/（gitignored），t4-allow-write、t4-reject-rm、t4-cancel-write、t4-bogus-rm（各含 rpc.jsonl、summary.json、stdout.log、rpc.stderr.log），另有 t4-allow-write-failed-env、t4-allow-write-failed-no-opencode 两个失败轮次。

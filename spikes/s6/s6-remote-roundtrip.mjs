@@ -17,6 +17,13 @@
  *      dsh-01 的假 Engine 日志收到该调用（MCP 回路打通的直接证据）。
  *   4. 反例：session/new 带一个 dsh-02 上不存在的 command -> 应失败。
  *
+ * 关键协议形状（2026-11-09 修正，见 S5/S6 报告）：
+ *   - stdio MCP 条目必须显式带 env: []（ACP SDK 1.4.0 的 zMcpServerStdio 要求
+ *     env: EnvVariable[]；缺了会被 vecSkipError 静默丢弃，session/new 照样成功）。
+ *   - 模型侧工具名是 mcp__<serverName>__<rawName>，即 mcp__projects__projects_echo；
+ *     断言按该名字精确匹配，禁用 JSON 子串（旧版用 includes('projects_echo')
+ *     会把 bash grep 误判为 MCP 调用）。
+ *
  * 注意：本脚本复用 ../s5/rpc-client.mjs（需 spikes/s5 与 spikes/s6
  * 同时存在于 dsh-01 上）。凭据不经过本脚本；SSH 接入由指挥者提供。
  */
@@ -53,8 +60,8 @@ const client = createClient({ command, args: cmdArgs, logPath: join(logDir, 'rpc
 try {
   const health = await fetch(`${engineUrl}/health`).then((r) => r.ok).catch(() => false);
   run.check('本机假 Engine 就绪', health, engineUrl);
-  const init = await client.request('initialize', { protocolVersion: '1.0', clientInfo: { name: 'spike-s6', version: '0.1.0' }, clientCapabilities: {} }, { timeoutMs: 120000 });
-  run.check('远端 initialize 成功', typeof init?.protocolVersion === 'string', `protocolVersion=${init?.protocolVersion} agent=${init?.agentInfo?.name ?? ''}`);
+  const init = await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'spike-s6', version: '0.1.0' }, clientCapabilities: {} }, { timeoutMs: 120000 });
+  run.check('远端 initialize 成功', typeof init?.protocolVersion === 'number', `protocolVersion=${init?.protocolVersion} agent=${init?.agentInfo?.name ?? ''}`);
   run.info('远端能力声明原样', JSON.stringify(init?.agentCapabilities ?? null));
 
   const created = await client.request('session/new', {
@@ -65,6 +72,8 @@ try {
       // 预检实测后传入，禁止假设）。
       command: remoteNode,
       args: [proxyPath, '--log', proxyLog, '--engine-url', engineUrl, '--scratch', scratch],
+      // 必填：缺 env 的条目会被 ACP SDK 静默丢弃，session/new 仍返回成功。
+      env: [],
     }],
   }, { timeoutMs: 180000 });
   run.check('远端 session/new 成功', typeof created.sessionId === 'string', `sessionId=${created.sessionId}`);
@@ -72,23 +81,36 @@ try {
 
   const p = await client.request('session/prompt', {
     sessionId,
-    prompt: [{ type: 'text', text: 'Call projects_echo with text "spike-s6-remote-probe" and report exactly what it returned. Do not do anything else.' }],
+    prompt: [{ type: 'text', text: 'Call the MCP tool mcp__projects__projects_echo with text "spike-s6-remote-probe" and report exactly what it returned. Do not use bash and do not do anything else.' }],
   }, { timeoutMs: 300000 });
   run.info('远端 prompt 结束', `stopReason=${p?.stopReason}`);
-  const echoCall = client.toolCalls().find((t) => JSON.stringify(t).includes('projects_echo'));
-  run.check('远端执行者发起了 projects_echo 调用', echoCall !== undefined, echoCall ? JSON.stringify(echoCall).slice(0, 300) : '未见 tool_call');
+  const callEvents = client.toolCalls().filter((t) => t.sessionUpdate === 'tool_call');
+  run.info('全部 tool_call 标题', JSON.stringify(callEvents.map((t) => t.title)));
+  const echoCall = callEvents.find((t) => t.title === 'mcp__projects__projects_echo');
+  run.check('远端执行者发起了 projects_echo 的 MCP 工具调用（按工具名精确匹配）', echoCall !== undefined,
+    echoCall ? JSON.stringify(echoCall).slice(0, 300) : '未见 title===mcp__projects__projects_echo 的 tool_call（bash 子串不算）');
+  const bashCalls = callEvents.filter((t) => t.title === 'bash');
+  run.info('bash 工具调用数（防假阳性对照）', String(bashCalls.length));
   await sleep(1000);
   const engineCalls = await (await fetch(`${engineUrl}/calls`)).json().catch(() => ({ calls: [] }));
   const seen = (engineCalls.calls ?? []).find((c) => c.tool === 'projects_echo' && c.args?.text === 'spike-s6-remote-probe');
   run.check('MCP 回路打通：本机假 Engine 收到远端调用', seen !== undefined, seen ? JSON.stringify(seen).slice(0, 300) : 'Engine 日志无此调用（隧道可能未通）');
   run.info('远端模型回执文本', client.updateTexts().slice(0, 500));
 
-  // 反例：dsh-02 上不存在的 command。
+  // 反例：dsh-02 上不存在的 command（条目 schema 合法，会真的去挂载 -> failOnStartupError）。
   try {
-    await client.request('session/new', { cwd, mcpServers: [{ name: 'ghost', command: '/nonexistent/node', args: [] }] }, { timeoutMs: 60000 });
+    await client.request('session/new', { cwd, mcpServers: [{ name: 'ghost', command: '/nonexistent/node', args: [], env: [] }] }, { timeoutMs: 60000 });
     run.check('反例：远端不存在的 command 应失败', false, '服务端接受了不存在的命令');
   } catch (e) {
-    run.check('反例：远端不存在的 command 失败', true, e.message);
+    run.check('反例：远端不存在的 command 失败（failOnStartupError 生效）', true, e.message);
+  }
+  // 反例：同样不存在的 command 但不带 env -> ACP SDK 静默丢弃条目，session/new 成功。
+  try {
+    const dropped = await client.request('session/new', { cwd, mcpServers: [{ name: 'ghost-no-env', command: '/nonexistent/node', args: [] }] }, { timeoutMs: 60000 });
+    run.check('反例：缺 env 的远端条目被 SDK 静默丢弃（session/new 成功，未挂载）', typeof dropped.sessionId === 'string',
+      `sessionId=${dropped.sessionId}；真的进入挂载时 failOnStartupError 会让 session/new 失败`);
+  } catch (e) {
+    run.check('反例：缺 env 的远端条目本应被静默丢弃（实测失败）', false, e.message);
   }
   code = run.finish({ sessionId, engineCalls: (engineCalls.calls ?? []).length });
 } catch (e) {

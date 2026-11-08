@@ -110,6 +110,20 @@ ssh -R 8931:127.0.0.1:8931 -o BatchMode=yes -p 2222 <user>@ssh.instabox.sh -- cl
 只在 S5 矩阵已给该执行者打出「支持/部分」且凭据就绪时跑；否则记
 「未测（S5 未通过 / 缺凭据）」，不硬跑。
 
+### MCP 回路的条目形状与传输分流（2026-11-09 修正）
+
+- stdio 条目必须显式带 `env: []`（ACP SDK 1.4.0 的 `zMcpServerStdio` 要求
+  `env: EnvVariable[]`；缺失会被 `vecSkipError` 静默丢弃，`session/new` 仍返回成功但不挂载）。
+  旧版本脚本没带 env，这是本轮 MCP 回路未打通的直接原因，不是 agent 不支持 stdio。
+- 模型侧工具名是 `mcp__<serverName>__<rawName>`（如 `mcp__projects__projects_echo`），
+  所有工具调用断言按精确名匹配，禁用 JSON 子串（旧版 `includes('projects_echo')`
+  会把 bash grep 误判为 MCP 调用）。
+- 传输分流：支持 HTTP MCP 的执行者（`initialize.mcpCapabilities.http === true`）
+  直连本机 HTTP `/projects/mcp` 端点；仅 stdio 的本机执行者挂
+  `projects-mcp-stdio.mjs`；远端 SSH 执行者因本 SSH 网关拒绝 `ssh -R` 端口转发，
+  默认走 exec stdio 桥接（`projects-mcp-bridge.mjs` 经第二条 exec stdio 通道回传本机，
+  ADR-0009/0012 已定义方向；本 spike 未实现、未验证）。
+
 ## 5. 判定与证据
 
 - 通过标准：正常往返与 MCP 回路可用；断线行为被准确记录，能据此设计

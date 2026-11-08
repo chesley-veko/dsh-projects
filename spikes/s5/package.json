@@ -1,0 +1,1 @@
+{"description":"S5 local ACP executor capability matrix: thin MCP proxy, fake Engine, JSON-RPC test scripts. No dependencies (hand-rolled NDJSON client).","name":"spike-s5-acp-matrix","private":true,"scripts":{"audit":"node ./t8-credentials.mjs --log-dir ./evidence/t8"},"type":"module"}

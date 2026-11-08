@@ -1,0 +1,31 @@
+# Lab overlay for the shipped `acp` profile (dsh --profile acp), S5.
+# Install: copy this whole directory to <DSH_HOME>/profiles/acp/ on dsh-01,
+# run `pnpm install` there, then verify:
+#   DSH_HOME=<lab> dsh --profile acp --dump-config | grep -A4 'id: agent-default-model'
+#   DSH_HOME=<lab> dsh --profile acp --dump-config | grep -A6 'id: acp$'
+# Both must resolve to opencode-go / deepseek-v4.1-flash.
+# The shipped bundle defaults the acp plugin to deepseek-official /
+# deepseek-v4-flash; this patch overrides it to the lab route. Default model
+# stays deepseek-v4.1-flash (no other model is used by default).
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        displayName: OpenCode Go
+        apiKeyEnv: OPENCODE_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/go/v1
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: deepseek-v4.1-flash
+        headers:
+          x-opencode-session: c978f2c1-dbab-4957-bbce-75b3c132b09d
+- id: acp
+  config:
+    provider: opencode-go
+    model: deepseek-v4.1-flash
+- id: agent-default-model
+  config:
+    provider: opencode-go
+    model: deepseek-v4.1-flash

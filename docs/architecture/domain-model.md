@@ -23,11 +23,11 @@ erDiagram
 
 | 对象 | 是什么 | 原型中的对应 |
 |---|---|---|
-| **Project** | 跨周跨月存活的作用域：名字、外观、目标、仓库组、协调者会话、上下文目录、设置 | 左栏项目、项目设置 |
-| **ProjectRepo** | 项目挂载的一个仓库：别名、本地路径、远端、默认分支、是否主仓库、refs 同步时间 | 设置里的仓库、主仓库、默认分支、refs 同步 |
+| **Project** | 跨周跨月存活的作用域：名字、外观、目标、仓库组（0..N 个，支持无仓库调研项目）、协调者会话、上下文目录、设置 | 左栏项目、项目设置 |
+| **ProjectRepo** | 项目挂载的一个仓库：别名、本地路径、远端、默认分支、是否主仓库、仓库级验证配置、refs 同步时间 | 设置里的仓库、主仓库、默认分支、refs 同步 |
 | **AgentProfile** | 项目里的一个「成员」：一组可复用的运行偏好（显示名、头像色、执行者、模型、effort、权限、默认位置）。人类成员也是一条 profile（`kind=human`） | 成员、负责人头像 |
-| **Task** | 计划项，编号 `<PREFIX>-<n>`（如 `YOU-4`），可有父子与依赖 | 右栏任务行 / 看板卡片 |
-| **Attempt** | 对一个 Task 的一次尝试 = 一条工作分支（仓库 + 基线 + 分支），与位置无关；best-of-N 时一个 Task 有多个并行 Attempt | 任务详情里的仓库、分支 |
+| **Task** | 计划项，编号 `<PREFIX>-<n>`（如 `YOU-4`），可有父子与依赖、目标仓库 `repo_alias` | 右栏任务行 / 看板卡片 |
+| **Attempt** | 对一个 Task 的一次尝试 = 一条工作分支（仓库 + 基线 + 分支 + 当前 `head_sha`；无仓库项目时分支字段为空），与位置无关；best-of-N 时一个 Task 有多个并行 Attempt | 任务详情里的仓库、分支 |
 | **Checkout** | Attempt 的分支在某个位置上的一份检出（本地 worktree、SSH 主机目录、容器、沙箱） | worktree 路径、环境 |
 | **Run** | 一个执行者会话（DSH 会话或 ACP 会话），绑定一个 Checkout，持有不可变的 RunSpec（执行者、模型、effort、权限、位置、凭据来源）与 Mandate | 任务详情的 worker、日志、过程 |
 | **Question** | worker 或协调者向人的提问 / 审批 | Question Tray |
@@ -56,8 +56,9 @@ erDiagram
 - 有过 Attempt 的 Task 不能物理删除，只能 `canceled`；从未执行过的可以删除。
 
 **Attempt / Checkout / Run**
-- 一个 Task 同一时刻最多一个 live Attempt；best-of-N 时最多 4 个，人采用其一后其余标 `superseded`。
-- 一个 Attempt 同一时刻最多一个 live Checkout、一个执行中的 worker Run（单 lane 单执行者）；reviewer Run 只读，可并存。
+- 一个 Task 同一时刻最多一个 live Attempt；best-of-N 时最多 4 个，各候选独立申请 `WorkerSlot`（有空槽即跑，其余显式排队 `Queued (slot)`），人采用其一后其余标 `superseded`。
+- 一个 Attempt 同一时刻最多一个 live Checkout、一个执行中的 worker Run（单 lane 单执行者）；reviewer Run 只读，可并存，且与 `validate` 一样优先复用刚释放的槽位。
+- 有仓库项目的 Attempt 必须指定 `repo_alias / base_ref / branch`（未显式传 `task.repo_alias` 时默认取项目 `is_primary=1` 的主仓库）；无仓库项目的 `repo_alias / base_ref / branch / head_sha` 允许为空，Checkout 直接使用受管空工作目录 `<dataDir>/workspaces/<project>/<attempt>`。
 - Checkout 可丢弃可重建，**分支是要保住的状态**；已 push 的分支不改名。
 - RunSpec 启动后不可变；DSH 原生会话的运行中切模型记为 `run_event`。
 - Run 结束不等于 Attempt 结束：可以换 profile、换执行者、换模型、换位置继续同一 Attempt（交接流程见 execution.md §5）。
@@ -70,25 +71,26 @@ erDiagram
 
 **Evidence**
 - `status ∈ {claimed, verified, failed}`；worker 只能写 `claimed`，只有 validator / CI 观察者能写 `verified` 或 `failed`。
+- 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`，且仅当 `evidence.commit_sha === attempt.head_sha` 时视为当前有效证据；worker 产生新提交推进 `attempt.head_sha` 后，旧 `verified` Evidence 自动失效（需重新验证）。无仓库 Attempt 的 `commit_sha` 允许为空。
 
 **ContextItem**
-- `status ∈ {proposed, ratified, disputed, superseded}`；runbook 只有在关联 Attempt 存在 `verified` Evidence 时才能从 `proposed` 转 `ratified`。
+- `status ∈ {proposed, ratified, disputed, superseded}`；runbook 只有在关联 Attempt 存在当前有效的 `verified` Evidence 时才能从 `proposed` 转 `ratified`。
 
 ## 3. 显示状态推导
 
-右栏分组、看板泳道、左栏徽标、协调者摘要都调用同一个纯函数 `deriveTaskView(task, facts)`。按顺序取第一条命中：
+右栏分组、看板泳道、左栏徽标、协调者摘要都调用同一个纯函数 `deriveTaskView(task, facts)`。**判定优先级按以下顺序取第一条命中**（终态优先于运行态，活跃运行态优先于待审态）：
 
-| 显示状态（UI 分组） | 原型 id | 条件 | 附加标记 |
-|---|---|---|---|
-| **Waiting on you** | `waiting` | 有覆盖该 Task 的 open gate（含执行者的权限请求）；或 live Run 为 `waiting_input / blocked`；或消息投递连续失败；或最近 Run 失败且之后无人回应 | `question` / `failed` / `undelivered` |
-| **For Review** | `review` | 有 open PR，或已有 `verified` Evidence，但 `intent ≠ accepted`；best-of-N 全部候选结束 | `ci_failing` / `changes_requested` / `mergeable` / `pick_1_of_n` |
-| **In Progress** | `working` | live Run `active` 或 `idle` 且后台作业未结束 | 15 秒单行摘要 |
-| **Queued** | `queued` | `intent=ready` 且尚未分配槽位；或依赖未满足 | `blocked_by:[…]` |
-| **Done** | `done` | `intent=accepted` | `merged` |
-| **Canceled** | `canceled` | `intent=canceled` | — |
-| Backlog（默认折叠） | — | `intent=backlog` | — |
+| 判定序 | 显示状态 | 原型 id | 命中条件 | 附加标记 |
+|---|---|---|---|---|
+| 1 | **Canceled** | `canceled` | `intent=canceled` | — |
+| 2 | **Done** | `done` | `intent=accepted` | `merged` |
+| 3 | **Waiting on you** | `waiting` | 有覆盖该 Task 的 open `gate` Question（含执行者权限请求）；或 live Run 为 `waiting_input / blocked`；或消息投递连续失败；或最新 Run 异常退出且结束时间晚于当前 Attempt 最近一次 `queued_at`（之后尚无人类回应或重排） | `question` / `failed` / `undelivered` |
+| 4 | **In Progress** | `working` | 有 live Run 为 `active`（含 PR 返工与 best-of-N 候选运行中），或为 `idle` 且后台作业未结束 | 15 秒单行摘要 |
+| 5 | **For Review** | `review` | 无活跃 worker Run，且满足其一：有 open PR；或当前 `attempt.head_sha` 上有匹配的有效 `verified` Evidence（无仓库项目为有最新 `verified` Evidence）；或 best-of-N 全部候选已结束 | `ci_failing` / `changes_requested` / `mergeable` / `pick_1_of_n` |
+| 6 | **Queued** | `queued` | `intent=ready` 且尚未分配槽位（含失败后刚触发重排等待槽位）；或依赖未满足 | `blocked_by:[…]` / `slot` |
+| 7 | Backlog（默认折叠） | — | `intent=backlog` | — |
 
-六个分组与原型 `GROUP_ORDER = ['waiting','review','working','queued','done','canceled']` 一一对应。旧稿中的 `Idle` 不再单列：等待外部事件的 Run 归入 `working`（有后台作业）或 `review`（有产出）。
+UI 展示时的分组排列顺序固定为 `GROUP_ORDER = ['waiting','review','working','queued','done','canceled']`。判定序把 `Canceled / Done` 放在最前、把 `In Progress` 放在 `For Review` 之前，确保：① 带未决提问或旧证据的任务仍可随时取消或接受；② 已提 PR 的任务在收到 review 意见重新启动 worker 返工时，能正确回到 `In Progress`；③ 失败任务点击重试/重排刷新 `attempt.queued_at` 后，即使并发槽已满也能立即进入 `Queued` 而不会卡死在 `Waiting on you`。
 
 ### 人在 UI 上「改状态」时实际发生什么
 
@@ -145,6 +147,7 @@ CREATE TABLE project_repo (
   remote TEXT,
   default_branch TEXT NOT NULL,
   is_primary INTEGER NOT NULL DEFAULT 0,
+  validate_json TEXT,                    -- 仓库级验证配置（.dsh/environment.json 缺省时回退）
   refs_json TEXT NOT NULL DEFAULT '[]',
   refs_synced_at TEXT,
   PRIMARY KEY (project_id, alias)
@@ -173,7 +176,7 @@ CREATE TABLE task (
   body TEXT NOT NULL DEFAULT '',
   intent TEXT NOT NULL,                  -- backlog | ready | canceled | accepted
   assignee_profile_id TEXT,
-  repo_alias TEXT,
+  repo_alias TEXT,                       -- 多仓项目指向具体仓库；未传时回退至 is_primary=1 主仓库；无仓库项目为 NULL
   ordinal REAL NOT NULL,
   successor TEXT,                        -- 'YOU-5' | 'no_followup:<理由>'
   created_at TEXT NOT NULL,
@@ -190,11 +193,13 @@ CREATE TABLE task_dep (
 CREATE TABLE attempt (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL,
-  repo_alias TEXT NOT NULL,
-  base_ref TEXT NOT NULL,
-  branch TEXT NOT NULL,                  -- agent/you-4-staging-verify
+  repo_alias TEXT,                       -- 无仓库项目为 NULL；有仓库项目由 Engine 强制非空
+  base_ref TEXT,                         -- 无仓库项目为 NULL
+  branch TEXT,                           -- agent/you-4-staging-verify；无仓库项目为 NULL
+  head_sha TEXT,                         -- 当前分支 HEAD commit SHA；用于校验 Evidence 是否过期
   state TEXT NOT NULL,                   -- live | adopted | superseded | ended
   preserved_ref TEXT,
+  queued_at TEXT NOT NULL,               -- 最近一次排队/重试时间戳
   created_at TEXT NOT NULL,
   ended_at TEXT
 );
@@ -217,7 +222,7 @@ CREATE TABLE run (
   role TEXT NOT NULL,                    -- worker | reviewer
   spec_json TEXT NOT NULL,               -- RunSpec，不可变
   transport TEXT NOT NULL,               -- dsh-native | acp
-  session_ref TEXT NOT NULL,             -- DSH session id 或 ACP sessionId
+  session_ref TEXT NOT NULL,             -- 事务内预生成的确定性 DSH session id 或 ACP sessionId
   native_ref TEXT,                       -- 执行者自身会话 id（用于续接 / 交接）
   mandate_json TEXT NOT NULL,
   activity TEXT NOT NULL,                -- active | idle | waiting_input | blocked | exited
@@ -231,11 +236,11 @@ CREATE TABLE run (
 CREATE TABLE run_event (
   run_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
-  kind TEXT NOT NULL,                    -- message | thought | tool_call | plan | permission | usage | state | model_switched | handoff
+  kind TEXT NOT NULL,                    -- turn_end | tool_call | plan | permission | usage | state | model_switched | handoff
   body_json TEXT NOT NULL,
   at TEXT NOT NULL,
   PRIMARY KEY (run_id, seq)
-);                                       -- 仅 ACP 运行写入；DSH 原生运行的过程留在 DSH 会话里
+);                                       -- 仅存低频生命周期与工具边界事件（不挂 change_log 触发器）；高频流式 chunk 走内存 SSE 与 <dataDir>/runs/<run_id>.jsonl
 
 CREATE TABLE question (
   id TEXT PRIMARY KEY,
@@ -254,6 +259,7 @@ CREATE TABLE question (
 CREATE TABLE evidence (
   id TEXT PRIMARY KEY,
   attempt_id TEXT NOT NULL,
+  commit_sha TEXT,                       -- 有仓库时由 Engine 强校验非空且匹配 attempt.head_sha；无仓库项目为 NULL
   kind TEXT NOT NULL,                    -- test | ci | artifact | diffstat
   status TEXT NOT NULL,                  -- claimed | verified | failed
   ref TEXT,
@@ -317,6 +323,9 @@ CREATE TABLE project_event (
 CREATE TABLE effect (
   kind TEXT NOT NULL,
   key TEXT NOT NULL,
+  lane_key TEXT NOT NULL,                -- 串行域键，如 'attempt:att-1' 或 'repo:proj-1/main'；同 lane_key 严格串行互斥
+  state TEXT NOT NULL DEFAULT 'queued',  -- queued | running（进程启动恢复时将残留 running 重置为 queued）
+  claimed_at TEXT,
   payload_json TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   not_before TEXT,
@@ -332,4 +341,4 @@ CREATE TABLE change_log (
 );
 ```
 
-`change_log` 由触发器写入；SSE 推送按 `seq` 水位，客户端断线后用 `since=<seq>` 补发。
+`change_log` 由业务实体表（`project`、`task`、`attempt`、`checkout`、`run`、`question`、`evidence`、`pull_request`、`context_item`）的触发器写入，不对 `run_event` 和 `effect` 挂触发器；SSE 推送按 `seq` 水位，客户端断线后用 `since=<seq>` 补发。

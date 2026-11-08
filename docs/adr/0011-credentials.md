@@ -8,7 +8,7 @@ Anthropic 不允许第三方产品提供 claude.ai 订阅登录，但用户在�
 ## 决定
 - 本地：只探测已登录状态，不读不复制 token；也可用 DSH `credentials` 中的 API Key。
 - 远端：只允许 `credential:<id>`（API Key），启动该进程时按次注入；Claude 远端用 `--bare`；不同步 `~/.claude`、`~/.codex/auth.json`。
-- 子进程清除父进程中像凭据的环境变量；DSH 子实例独立 `DSH_HOME`。
+- 子进程沿用宿主 `dsh-subprocess-local` 的黑名单凭据清洗（剥离 `DSH_*` 与敏感凭据环境变量，保留 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*` 与代理变量，确保本机 CLI 登录态与系统 Keychain 正常可用），再按次叠加注入项目声明变量；DSH 子实例独立 `DSH_HOME`。
 - UI 在启动摘要与运行头显示计费来源。
 
 ## 后果

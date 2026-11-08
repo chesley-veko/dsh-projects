@@ -4,17 +4,18 @@
 
 ## 1. 交付形态
 
-一个 DSH bundle 插件，含客户端与服务端两部分，经 `cordis.patch.yml` 注册。**不修改 DSH 宿主代码**；不 fork dsh-superagent 的域模型，只复用其基础设施代码（见 [ADR-0001](../adr/0001-own-engine.md)）。
+一个 DSH bundle 插件，含客户端与服务端两部分，经 `cordis.patch.yml` 注册。不 fork dsh-superagent 的域模型，只复用其基础设施代码（见 [ADR-0001](../adr/0001-own-engine.md)）；对 DSH 宿主仅提议一处最小上游扩展 PR（`sidebar.regions` 区域插槽 + `SessionOrigin` 的 `'project-worker'` 左栏过滤，见 §2）。
 
 ## 2. 客户端扩展点（已核实）
 
-| 需求 | 扩展点 | 状态 |
+| 需求 | 扩展点 | 状态与契约 |
 |---|---|---|
-| Projects 入口与首页 | `sidebar.panellist` 图标 → keyed 插槽 `main` 注册面板 | 可用。SA 用同样方式注册自己的面板（`SA/src/client/index.tsx:48-58`） |
+| Projects 全局入口与首页 | `sidebar.panellist` 图标 → keyed 插槽 `main` 注册首页面板 | 可用。SA 用同样方式注册自己的面板（`SA/src/client/index.tsx:48-58`）；仅用于全局项目列表首页 |
+| 项目概览页与外部执行者运行视图 | `conversation.view`（`id: 'project-overview' \| 'project-run'`）+ `conversation.composer`（chain 插槽） | **不注册为 `main` 面板**：宿主 `ui-sidebar-right/src/client/index.ts:138-140` 在 `activePanelId !== null` 时会强制收起右栏。挂在协调者会话的 `conversation.view` 下可保持 `activePanelId === null`、右栏常驻；同时用 `conversation.composer` 在概览页隐藏输入框、在外部运行视图接管为该 Run 的输入框（避免与宿主常驻 `composerSeat` 叠出双输入框） |
 | 协调者会话行的项目图标、未读与待回答数 | `sidebar.session.row.leading` / `trailing`、`sidebar.workspaces.session.row.action` | 可用 |
 | 「加入项目」右键菜单 | `sidebar.workspaces.session.menu.item` | 可用，但标注 **Legacy**（`DH/packages/client/ui-workspace/src/client/contract/slots.ts:166-201`），需跟进迁移 |
-| 右栏 Project 面板 | `ctx.sidebarRightTabs.register` | 可用（`DH/packages/client/ui-sidebar-right/src/client/tab-registry.ts:253`） |
-| 托盘、胶囊 | `conversation.input.overlay`、`conversation.composer.dock` | 可用（`DH/packages/client/ui-conversation/src/client/apply.ts:468,475`） |
+| 右栏 Project 面板 | `ctx.sidebarRightTabs.register` + 客户端 root 级 `ProjectUiStore` | 可用（`DH/packages/client/ui-sidebar-right/src/client/tab-registry.ts:253`）。宿主 `rightbar.session` 按 `sessionId` 隔离（`ui-sidebar-right/src/client/index.ts:175-186`），客户端通过 root 级 `ProjectUiStore` 按当前 `sessionId`（协调者或同项目本地 DSH worker）反查 `projectId`，跨会话共享同一项目的看板与详情状态 |
+| 托盘、胶囊、派发默认 Chip | `conversation.input.overlay`、`conversation.composer.dock`、`conversation.input.left` | 可用（`DH/packages/client/ui-conversation/src/client/apply.ts:420-475`） |
 | 打开协调者 / worker 会话 | `ctx.uiWorkspace.openSession` | 可用（`ui-workspace/navigation.ts:45`） |
 | 侧栏开合徽标 | `sidebar.toggle.badge` | 可用 |
 
@@ -23,55 +24,60 @@
 | 旧方案 | 问题 |
 |---|---|
 | 在左栏插入独立「项目」区（锚定 `.kB3qhq_regionArea`） | 没有区域插槽；`sidebar.workspaces` 是 single 插槽且被 ui-workspace 占用（`DH/packages/client/ui-sidebar/src/client/contract/slots.ts:58`）。CSS Module 哈希类名随版本变化 |
+| 把项目概览页或外部执行者运行视图注册进 `main` 插槽 | 激活任何 `main` 面板都会令 `activePanelId !== null`，触发 `ui-sidebar-right/src/client/index.ts:138-140` 立即关闭右栏 |
+| 占用 `conversation.view` 的 `'trajectory'` ID | 已被宿主 `ui-trajectory` 占用（`DH/packages/client/ui-trajectory/src/client/index.ts:79-81`），必须用 `'project-overview'` 与 `'project-run'` |
+| 把本地 DSH worker 伪装成 `origin: 'subagent'` | 触发宿主 subagent 围栏：① 默认 `maxDepth=1`（`subagent/src/index.ts:194`）剥夺 worker 内部调用 `subagent` 的能力；② 父会话未加载时 `subagents.prompt` 抛 `subagent/parent-unavailable`（`subagent/src/index.ts:459`）；③ 协调者重建触发 `drainDescendants` 强杀在跑 worker（`subagent/src/manager.ts:297`）；④ `file-upload/src/index.ts:223` 拒绝向 subagent 上传文件 |
 | 注册 `main.conversation` 承载协调者 | single 插槽，注册即替换整个对话视图（`ui-conversation/apply.ts:337,584`）。协调者用普通会话即可 |
 | 客户端调用 `workspaceRegistry.archiveSession` | 服务端服务，客户端拿不到 |
 
-**左栏原生「项目」分组的路线**：短期用 panellist + 首页面板 + 会话行徽标承载；同时向 DSH 上游提议一个 list 型 `sidebar.regions` 插槽。上游接受后再切换为原型中的左栏分组，交互不变。
+**左栏原生「项目」分组与 worker 隐藏路线**：短期用 panellist + 首页面板 + 会话行徽标承载；同时向 DSH 上游提交一个最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:81`）增加 `'project-worker'` 并在 `DH/packages/client/ui-workspace/src/client/tree.ts:244` 过滤，避免本地 DSH worker 落入左栏「未分组」（`tree.ts:361-375`）。
 
 ## 3. 服务端扩展点（已核实）
 
 | 能力 | 用法 | 证据 |
 |---|---|---|
-| 工具注册 | `agent.ctx.tools.register`，按 preset 分配 | `SA/src/app/sessions.ts:206-215` |
-| HTTP | `webServer.register('/projects', …)`，仅本机同源 | `SA/src/app/http.ts:231-237` |
-| 会话创建 | `sessionController.create({ cwd })` 可只给 cwd | `DH/packages/api/session-controller/src/commands.ts:120-140` |
+| 工具注册与协调者围栏 | `agent.ctx.tools.register` 注册工具；协调者 preset 调用 `presetCtx.tools.restrict({ deny })` + `presetCtx.tools.guard()` 屏蔽宿主平面全局工具（如 `working_directory`） | `DH/packages/core/tools/src/index.ts:1096-1148,1184-1225`；`DH/packages/bundle/base/cordis.patch.yml:164` |
+| HTTP | `webServer.register('/projects', …)`，仅本机同源（同时提供 `/projects/mcp` 供本机 `projects-mcp` 薄代理转发回单写者 `Engine`） | `SA/src/app/http.ts:231-237` |
+| 本地 worker 会话创建与初始模型 | 用事务内预生成的 `sessionId` 调 `ctx.agents.create({ sessionId, cwd, preset, origin: 'project-worker' })`，再用 `agent.session.append('model/selection', selection)` 写入会话级初始模型 | `DH/packages/experimental/webhook/src/session.ts:138`；`DH/packages/api/session-controller/src/agent.ts:287-293` |
 | 投递与插话 | `agent.inbox`、`steer()` / `inject()`；SA 的 `AgentDelivery` 实现按 requestId 幂等的 queue / steer / inject | `DH/packages/core/agent/src/runtime-types.ts`；`SA/src/app/delivery.ts:66-85` |
-| 事件 | `agent/status`、`agent/inbox/*`、`agent/pre-step`、`session/event` | LoopX Driver 已在用 |
+| 事件与系统提示词 | `agent/status`、`agent/inbox/*`、`agent/pre-step`、`session/event`；`presetCtx.systemPrompt.section` 常驻注入 `INDEX.md` | `DH/packages/core/system-prompt/src/index.ts:578-598` |
 | 仓库说明注入 | `dsh-agent-instructions` 读 `AGENTS.md / CLAUDE.md / *.local.md` | `DH/packages/context/agent-instructions/src/config.ts:12-13` |
-| 子代理 | `subagent`、`send_message` 等工具（worker 可用，协调者 preset 不给） | `DH/packages/subagent/*` |
+| 子代理 | `subagent`、`send_message` 等工具（worker 保持 `delegationDepth=0` 可正常使用；协调者 preset 屏蔽） | `DH/packages/subagent/*` |
 
 **已知陷阱**
 
+- **不要对 worker 调用 `sessionController.selectModel`**：`DH/packages/api/session-controller/src/commands.ts:171` 在切模型时会顺带执行 `this.ctx.agentDefaultModel.saveSelection(selected)`，直接篡改用户的全局默认模型。必须改用 `agent.session.append('model/selection', selection)`。
+- **新建项目的协调者会话不能停留在 `blank` 态**：`DH/packages/client/ui-conversation/src/client/skeleton/DefaultConversationViews.tsx:33` 在 `session.blank` 时直接返回 `null` 并隐藏顶部视图切换栏（`ConversationSession.tsx:70,141`）。建项目时必须写入初始引导事件使 `session.blank = false`。
+- **不要把高频变化的 `project_status` 放进 `systemPrompt.section`**：每次修改系统提示词都会击穿整个长会话的 LLM Prefix KV Cache；`systemPrompt.section` 只放低频变动的 `INDEX.md`，`project_status` 保持工具调用或 `agent/pre-step` 尾部增量注入。
 - 不要归档运行中的 worker 会话：`ArchivedSessionGate` 会在每个 `agent/pre-step` 拒绝已归档会话（`DH/packages/api/session-controller/src/archived-session-gate.ts:24-33`），活动中归档还会抛 `WorkspaceActiveSessionError`。
-- `workspaceRegistry.create(cwd)` 对每个新路径新建并置顶工作区（`DH/packages/workspace/workspace/src/index.ts:222-244`），是 SA 左栏爆炸的根因。
-- DSH 没有内建长期记忆包；`INDEX.md` 注入由本插件负责。
-- worker 以操作者 OS 用户运行、无沙箱（SA `docs/003-execution.md`）；环境变量必须白名单。
+- `workspaceRegistry.create(cwd)` 对每个新路径新建并置顶工作区（`DH/packages/workspace/workspace/src/index.ts:222-244`），是 SA 左栏爆炸的根因；而只调 `sessionController.create({ cwd })` 不设 `origin: 'project-worker'` 则会把所有非空会话塞进左栏「未分组」（`tree.ts:361-375`）。
+- 本地子进程环境变量不能用严格白名单裁剪掉 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*`，否则本地 `claude` / `codex` CLI 无法读取 `~/.claude`、`~/.codex` 与系统 Keychain；应复用宿主 `dsh-subprocess-local` 的黑名单凭据清洗（`subagent-acp/src/run.ts:344-345`）。
 
 ## 4. 从 dsh-superagent 复用什么
 
 | 复用（代码级） | 不复用 |
 |---|---|
 | `store.ts` 的 `atomic()` / SAVEPOINT / afterCommit | `Evals` / `Decision` / Ticket 的 1:1 语义 |
-| effect 表与退避执行器 | router preset 的「不读代码」提示词规则（改为工具边界） |
+| effect 表与退避执行器（升级支持 `lane_key` 与 `state`） | router preset 的「不读代码」提示词规则（改为 `tools.restrict` + `tools.guard`） |
 | `AgentDelivery` 幂等投递 | 单仓库线程键（改为 `github:<owner>/<repo>#<n>`） |
-| `WorkerSlots`（同步预留、人类 +1） | SA 自己的运维面板 |
+| `WorkerSlots`（同步预留、人类 +1、唤醒/验证优先） | SA 自己的运维面板 |
 | Source / Eval / Mandate（仅在 `intake` 包，用于外部事件） | — |
 
 ## 5. M0 前必须做的 spike
 
-1. `sessionController.create({ cwd })` 创建的 worker 会话在左栏的呈现；`openSession` 能否打开（SA `navigation.ts:14-22` 要求会话在会话目录中）。
-2. 若 (1) 不理想，备选：`workspaceRegistry.create` 后立即 `workspaceRegistry.delete(id)`（只删登记，`index.ts:302-312`）。
-3. `INDEX.md` 注入点：首条消息 vs `agent/pre-step`；测量后者的每步开销。
-4. 协调者 preset 能否完全移除内置文件 / shell 工具。
+1. 验证 `SessionOrigin` 扩展 `'project-worker'` + `tree.ts:244` 1 行过滤后，本地 DSH worker 会话不进左栏「未分组」、`openSession` 正常打开、且 `subagent` 工具与文件上传不受限。
+2. 验证协调者会话挂载 `conversation.view`（`project-overview` / `project-run`）+ `conversation.composer` 接管时，右栏 `sidebarRightTabs` 保持常驻且底部无双输入框冲突。
+3. 验证 `presetCtx.tools.restrict({ deny })` + `presetCtx.tools.guard()` 完全屏蔽宿主平面 `working_directory` 与全局 MCP 工具。
+4. 验证 `presetCtx.systemPrompt.section` 注入 `INDEX.md` 在触发 `context-compaction` 后仍完整保留且 Prefix KV Cache 稳定命中。
 
 ## 6. 执行层可复用的 DSH 件（第三轮核查）
 
 | 能力 | DSH 件 | 用法 / 限制 |
 |---|---|---|
-| 本地起 DSH worker 并指定 preset、模型、权限 | `experimental/webhook/src/session.ts:100-135` 的建会话路径；`sessionController.create`；`agentOptions` | executor-host 的 dsh-native 驱动照此实现 |
+| 本地起 DSH worker 并指定 preset、模型、权限 | `ctx.agents.create({sessionId, cwd, preset, origin: 'project-worker'})` + `agent.session.append('model/selection', selection)` | 预生成 `sessionId` 防孤儿会话；`model/selection` 事件设初始模型且不污染全局默认 |
 | 运行中切模型 | `session-controller/src/commands.ts:166`、`core/agent/src/model-selection.ts:157` | 记为 `run_event` |
 | 远端 DSH 执行者 | `packages/acp/acp`（`dsh --profile acp`：new / list / resume / close / `set_config_option{model, reasoning_effort}`） | 不支持 `session/load`、modes、plans、client fs / terminal |
-| 外部 agent 配置格式 | `packages/subagent/subagent-acp`（`command / args / env / permission`） | 只借配置格式；运行用自建 ACP client |
+| 外部 agent 配置格式 | `packages/subagent/subagent-acp`（`command / args / env / permission`） | 只借配置格式与 `subprocess-local` 凭据清洗；运行用自建 ACP client |
 | 模型目录 | `llm-pi-ai`（40+ provider、自定义 OpenAI / Anthropic 网关） | DSH 执行者的目录来源 |
 | worktree | `experimental/worktree`（create / restore，`.agents/worktrees`） | 无清理、无 fetch、不带未提交改动；自建回收与关联 |
 | PR | `forge`、`forge-github`、`client-ui-forge` | PR 绑定、状态轮询、diff 视图；只支持 GitHub CLI |

@@ -7,9 +7,9 @@
 
 | 区域 | 内容 | 宿主承载（见 [ADR-0003](../adr/0003-host-extension-points.md)） |
 |---|---|---|
-| 左栏 | DSH 原生侧栏 + 项目入口；项目行显示图标、名称、相对时间、未读点 | 首版：`sidebar.panellist` 图标 → Projects 首页面板；协调者会话行显示项目图标与徽标。上游提供区域插槽后改为原型中的左栏「项目」分组 |
-| 中栏 | 项目的协调者会话（DSH 原生对话）；头部「对话 / 轨迹」分段 | 普通会话，`openSession` 打开；轨迹页为 `main` 面板 |
-| 右栏 | Project 面板：`List | Board | Library` | `sidebarRightTabs` |
+| 左栏 | DSH 原生侧栏 + 项目入口；项目行显示图标、名称、相对时间、未读点 | 首版：`sidebar.panellist` 图标 → Projects 首页面板；协调者会话行显示项目图标与徽标。上游合入 `sidebar.regions` + `origin: 'project-worker'` 过滤后，切换为左栏「项目」分组且隐藏本地 worker 会话 |
+| 中栏 | 项目的协调者会话（DSH 原生对话）；头部切换「对话 / 概览」（及按需激活的外部「运行视图」） | 普通会话，`openSession` 打开（建项目时写入初始引导事件脱离 `blank` 态）；概览页（`project-overview`）与外部运行视图（`project-run`）注册在 `conversation.view` 插槽（配合 `conversation.composer` 接管底部输入区），**不走 `main` 面板**以免触发宿主收起右栏 |
+| 右栏 | Project 面板：`List | Board | Library` | `sidebarRightTabs` + 客户端 root 级 `ProjectUiStore`（在协调者与同项目本地 DSH worker 会话间切换时共享同一项目上下文） |
 | 输入区上方 | `Questions · N`、`Agents · N`、`Listening · N` 胶囊与 Question Tray | `conversation.input.overlay` / `composer.dock` |
 
 ## 2. 两个入口
@@ -20,10 +20,10 @@
 
 ## 3. 协调者对话
 
-- 运行中发送按钮保持 `Send`（插话），不变为 `Stop`。
-- 输入区底部两个 chip，含义固定：
-  - 左 chip「**派发默认**」：新任务默认的执行者与位置，如 `Claude Code · 本地`、`DSH · 云端 my-vps`。点开为两列菜单（执行者 | 位置），每项带可用状态点（可用 / 未登录 / 未安装 / 位置不可达）。这是原型中「本机 Worktree / 远程 Sandbox」环境 chip 的演进。
-  - 右 chip「**协调者模型**」：只影响协调者本身（DSH 原生会话），切换后从下一步生效。
+- 运行中输入框为空时保留宿主 `Stop` 按钮（可随时中止当前回合）；一旦输入文字，按钮变为 `Send` 并在协调者会话下默认走 `steer`（插话）。
+- 输入区底部工具栏（复用宿主槽位，协调者 preset 不启用 `plan` 工具故自动隐藏 Plan 开关）：
+  - 左 chip「**派发默认**」（挂载于 `conversation.input.left`）：新任务默认的执行者与位置，如 `Claude Code · 本地`、`DSH · 云端 my-vps`。点开为两列菜单（执行者 | 位置），每项带可用状态点（可用 / 未登录 / 未安装 / 位置不可达）。这是原型中「本机 Worktree / 远程 Sandbox」环境 chip 的演进。
+  - 右 chip「**协调者模型**」（复用宿主原生 `conversation.input.model`）：只影响协调者本身（DSH 原生会话），切换后从下一步生效。
 - 协调者拆任务时，每个任务附带推荐的「执行者 · 模型 · 位置」与一句理由（如「需要本机 Docker → 本地」），人可在启动摘要中修改。
 - 收到消息先回一句确认与第一步，再调工具。
 - worker 回报折叠为单行「Update from YOU-4」，可展开；只有协调者对人正式发言才点亮未读。
@@ -97,12 +97,12 @@ YOU-4 Staging 灰度验证
 
 ## 6b. 运行视图
 
-- **DSH 执行者**：直接打开 DSH 会话（原生过程、审批、Files Changed）。
-- **外部执行者**：在 `main` 面板打开 Projects 运行视图，渲染统一事件流：
+- **DSH 执行者**：直接调用 `openSession` 打开该本地 DSH worker 会话（原生过程、审批、Files Changed）；客户端 `ProjectUiStore` 自动识别其所属 `projectId`，右栏保持挂载当前项目的 `List | Board | Library` 面板，顶部提供一键「返回协调者」入口。
+- **外部执行者**：在协调者会话的 `conversation.view`（`id: 'project-run'`）中打开运行视图（不切顶层 `main` 面板，保证右栏常驻），渲染统一事件流：
   - 头部：执行者 logo、模型、位置、计费来源、状态、用量；动作 `插话`、`停止`、`移到云端 / 拉回本地`、`交给其他执行者`。
   - 主体：消息、思考（默认折叠）、工具调用行（按 kind 显示读 / 改 / 执行 / 抓取图标，改动行可展开 diff）、计划清单。
   - 权限请求以内联卡片出现，同时进入托盘；任一处批准即生效。
-  - 底部输入框：发给该运行（排队或插话）。
+  - 底部输入框：通过 `conversation.composer` chain 插槽原位接管底部输入区，发给该运行（排队或插话，避免与协调者输入框叠放）。
 - **黑盒执行位置**（厂商云，延后）：只显示状态、diff、PR，头部标注「过程不可见」。
 
 ## 6c. 交接
@@ -139,9 +139,9 @@ YOU-4 Staging 灰度验证
 - 新增云环境向导：选类型 → 连接信息（SSH 主机与密钥引用 / Docker 上下文 / 提供商 API Key）→ 测试连接 → 选择默认仓库的环境规格。
 - 仓库环境规格：展示并编辑 `.dsh/environment.json`（image、install、start、validate、ports、network、secrets 名），显示最近一次准备（install）的日志与快照。
 
-## 8. 轨迹页
+## 8. 概览页（`project-overview`）
 
-项目目标、完成度、任务统计、成员、仓库、被阻塞任务数、快捷动作、最近活动；最近活动可按状态与成员筛选。新增：按执行者 / 位置的运行分布与用量，云端算力时长。
+通过协调者会话 `conversation.view`（`id: 'project-overview'`，避开宿主开发者调试用的 `'trajectory'` 视图 ID）渲染，底部通过 `conversation.composer` 隐藏聊天输入框：展示项目目标、完成度、任务统计、成员、仓库、被阻塞任务数、快捷动作、最近活动；最近活动可按状态与成员筛选。新增：按执行者 / 位置的运行分布与用量，云端算力时长。
 
 ## 9. 生命周期
 

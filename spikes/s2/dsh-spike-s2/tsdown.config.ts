@@ -9,6 +9,7 @@ const moduleIntro = 'var module = { exports: {} }; var exports = module.exports;
 export default defineConfig([
   {
     entry: ['src/index.ts'],
+    outDir: 'lib',
     format: 'esm',
     dts: true,
     clean: true,
@@ -17,7 +18,8 @@ export default defineConfig([
     external: [/^@deepseek-ai\//],
   },
   {
-    entry: ['src/client/index.tsx'],
+    entry: { client: 'src/client/index.tsx' },
+    outDir: 'lib',
     format: 'cjs',
     dts: false,
     clean: false,

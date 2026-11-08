@@ -1,7 +1,7 @@
 # 架构总览
 
-> 状态：现行（v4，2026-11-08，采纳实施前架构修订 ADR-0013–0018）。产品意图见 [../product/intent.md](../product/intent.md)。取代 `archive/docs/handoff-2026-11-04.md` 与 `archive/docs/dsh-project-layer-2026-11-04.html` 中的落地方案。
-> 依据：`deepseek-harness@fcc0ad46`、`dsh-superagent-prototype@8c32a9d`、`loopx@8a4d4f9` 源码核查（见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)），以及 [research/](../research/) 下的开源调研。
+> 状态：现行（v5，2026-11-09，结合 S0–S7 实测完成单包收敛、原位验证与宿主/远端接缝统一）。产品意图见 [../product/intent.md](../product/intent.md)。取代 `archive/docs/handoff-2026-11-04.md` 与 `archive/docs/dsh-project-layer-2026-11-04.html` 中的落地方案。
+> 依据：`deepseek-harness@fcc0ad46`（发布 tag `dsh-v0.2.2-rc.1@66491b05`）、`dsh-superagent-prototype@8c32a9d`、`loopx@8a4d4f9` 源码核查与 S0–S7 真机实测（见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)、[spike/reports/README.md](../spike/reports/README.md)）。
 
 ## 1. 要解决的问题
 
@@ -24,31 +24,31 @@
 7. **只用宿主真实存在的扩展点。** 不做 DOM 注入，不依赖 CSS Module 哈希类名。缺插槽就向上游提，或换交互承载方式。
 8. **执行者 × 模型 × 位置正交。** 每次运行记录不可变的 RunSpec；外部执行者统一走 ACP；agent 进程跟着代码走；git 分支是交接介质；云端只用用户自己的 API Key（[execution.md](execution.md)）。
 
-## 3. 分层
+## 3. 分层（单包 `dsh-projects` 目录边界）
 
 ```mermaid
 flowchart TB
-  subgraph Client["client（DSH 客户端插件）"]
+  subgraph Client["src/client（DSH 客户端入口）"]
     Home["Projects 首页面板\n(sidebar.panellist → main)"]
     Tab["右栏 Project Tab\nList | Board | Library"]
     Tray["输入框托盘与胶囊\n(conversation.input.overlay / composer.dock)"]
     Badge["会话行徽标\n(sidebar.session.row.*)"]
   end
-  subgraph Server["server（Cordis 服务端插件）"]
+  subgraph Server["src/server（Cordis 服务端入口）"]
     API["HTTP + SSE\n/projects"]
     Tools["协调者 / worker 工具"]
     Drv["Driver：监听 agent/status、inbox、pre-step"]
   end
-  subgraph Core["core（纯 TS，无宿主依赖）"]
+  subgraph Core["src/core（纯 TS，无 I/O 与宿主依赖）"]
     Eng["Engine（唯一写者）"]
     Derive["状态推导"]
   end
-  Store[("store-sqlite\nprojects.sqlite + change_log")]
-  Exec["executor-host\nDSH 原生会话 / ACP client\n统一事件流"]
-  Loc["locations\nlocal / ssh / docker / sandbox\n检出 · 起进程 · 交接"]
-  MCP["projects-mcp\nask_human / task_report / context_*"]
-  Git["git\n分支 / preserved ref / refs 同步"]
-  Intake["intake\nSource → Eval → Mandate\n(复用 dsh-superagent)"]
+  Store[("src/store\nprojects.sqlite + change_log")]
+  Exec["src/executors\nDSH 原生会话 / ACP client\n统一事件流"]
+  Loc["src/locations\nlocal / ssh / docker / sandbox\n检出 · 起进程 · 交接"]
+  MCP["src/mcp\nask_human / task_report / context_*"]
+  Git["src/git\n分支 / preserved ref / refs 同步"]
+  Intake["src/intake\nSource → Eval → Mandate\n(复用 dsh-superagent)"]
   Client <--> API
   Tools --> Eng
   Drv --> Eng
@@ -64,19 +64,21 @@ flowchart TB
   Intake --> Eng
 ```
 
-| 包 | 职责 | 不负责 |
-|---|---|---|
-| `core` | 域模型、命令、不变量、状态推导 | 任何 I/O |
-| `store-sqlite` | `node:sqlite`、迁移、事务、`change_log` | 业务规则 |
-| `server` | 注册 Cordis 服务、工具、HTTP/SSE、Driver | 直接写表（必须经 Engine） |
-| `executor-host` | 执行者驱动（dsh-native、acp）、探测、模型目录、统一事件流、权限请求转 Question | 决定何时启动 |
-| `locations` | 位置提供者（local / ssh / docker / sandbox）：检出、install、起进程、交接、回收、健康检查 | 选择位置 |
-| `projects-mcp` | 给所有执行者的统一工具面 | 业务规则（转发给 Engine 命令） |
-| `git` | 分支、refs 同步、preserved ref、WIP 提交 | 合并 PR |
-| `intake` | 外部事件准入（GitHub / 飞书），产出 Mandate | 交互式对话路径 |
-| `client` | 全部 UI | 业务状态（只读投影 + 发命令） |
+交付物为**单一 DSH bundle 插件包 `dsh-projects`**（消除多包 workspace 提升引发的 `@deepseek-ai/dsh-scope` 双实例 `Symbol('dsh.scope')` 撕裂，见 [S3 报告](../spike/reports/S3-coordinator-fence.md)），内部按模块目录分层，共用一份 `tsdown` 构建配置（统一 `external: [/^@deepseek-ai\//]`）：
 
-依赖单向：`client → server（HTTP）`；`server → core / store-sqlite / executor-host / locations / projects-mcp / git / intake`；`executor-host → locations`；`core` 不依赖任何包。
+| 模块目录 | 职责 | 不负责 |
+|---|---|---|
+| `src/core` | 域模型、命令、不变量、状态推导 | 任何 I/O 或 `@deepseek-ai/*` 宿主依赖 |
+| `src/store` | `node:sqlite`、迁移、事务、`change_log` | 业务规则 |
+| `src/server` | 注册 Cordis 服务、工具、HTTP/SSE、Driver | 直接写表（必须经 Engine） |
+| `src/executors` | 执行者驱动（dsh-native、acp）、探测、模型目录、统一事件流、权限请求转 Question | 决定何时启动 |
+| `src/locations` | 位置提供者（local / ssh / docker / sandbox）：检出、install、起进程、交接、回收、健康检查 | 选择位置 |
+| `src/mcp` | 给所有执行者的统一工具面（进程内注册、本机 `projects-mcp-stdio.mjs` 与远端 `projects-mcp-bridge.mjs`） | 业务规则（转发给 Engine 命令） |
+| `src/git` | 分支、refs 同步、preserved ref、WIP 提交 | 合并 PR |
+| `src/intake` | 外部事件准入（GitHub / 飞书），产出 Mandate | 交互式对话路径 |
+| `src/client` | 全部 UI | 业务状态（只读投影 + 发命令） |
+
+依赖单向（由 ESLint `import/no-restricted-paths` 强制）：`src/client → src/server（仅经 HTTP/类型）`；`src/server → src/core / src/store / src/executors / src/locations / src/mcp / src/git / src/intake`；`src/executors → src/locations`；`src/core` 不依赖任何同级目录或外部 I/O。
 
 ## 4. 两条授权路径
 
@@ -91,10 +93,10 @@ flowchart TB
 
 1. 人对协调者说需求 → 协调者首句确认 → 调 `task_create` 拆出 Task（`intent=ready`），并为每个 Task 推荐 RunSpec（执行者 · 模型 · 位置）。
 2. 人在启动摘要确认或修改 → Engine 生成不可变 Mandate、Run capability 和 RunSpec；依赖满足、槽位可用后入队 `checkout.prepare`。
-3. 位置提供者检出分支、先按受信策略准备环境 → `executor-host` 起执行者（本地 DSH 走原生会话，其余走 ACP）并投递任务原文、检出说明、`INDEX.md`、相关 runbook，挂上受 Run capability 限制的 projects-mcp。
+3. 位置提供者检出分支、先按受信策略准备环境 → `src/executors` 起执行者（本地 DSH 走原生会话，其余走 ACP）并投递任务原文、检出说明、`INDEX.md`、相关 runbook，挂上受 Run capability 限制的 projects-mcp。
 4. worker 运行；统一事件流写入 `activity` 与 `run_event`；右栏实时推导状态。Host 失联时远端 Run 进入 stale，不产生新的已确认事实。
 5. worker 需要人（`ask_human` 或执行者的权限请求）→ Question → 协调者会话托盘浮出。普通插话走 `steer`；ACP 权限回答直接回应原 permission RPC。
-6. worker 声明完成只产生候选结果。Engine 等待 Run 退出、冻结 Checkout 并固定 WIP commit/tree；validator 在只读快照上按受信 `policy_revision` 执行，只有 provenance 匹配时才能写 Evidence（verified / failed）。
+6. worker 声明完成只产生候选结果。Engine 等待 Run 退出、撤销写 capability、冻结 Checkout 并固化 WIP commit 记录 `(commit_sha, tree_sha)`；validator 在冻结的原 Checkout 上原位复用已装依赖、按受信 `policy_revision` 执行，并在结束后复核 `tree_sha` 与 `git status --porcelain` 未发生变化后，才写 Evidence（verified / failed）。不受信仓库的防逃逸由 `bwrap`/容器隔离门控负责（[ADR-0013](../adr/0013-verified-evidence-and-acceptance.md)、[ADR-0017](../adr/0017-repository-execution-trust.md)）。
 7. PR 观察者同步 PR / CI / review；CI 失败、review 意见自动回流给拥有该分支的 worker。外部 effect 通过 operation id 和 receipt 对账，未知结果不自动重放。
 8. PR merge 只记录外部事实。人调用 `task_accept`，确认没有 live Run、未完成写入 effect 和 open gate，并附后继 Task 或 `no_followup` 理由后，Task 才完成。
 9. 回收：未提交改动存为 preserved ref，按策略删除 worktree，保留分支。

@@ -1,24 +1,24 @@
 # 执行层：执行者 × 模型 × 位置
 
-> 状态：现行（v4，2026-11-08，采纳 ADR-0013–0018）。意图见 [../product/intent.md](../product/intent.md)；证据见 [../research/dsh-capabilities.md](../research/dsh-capabilities.md)、[../research/external-agents-cloud.md](../research/external-agents-cloud.md)。
+> 状态：现行（v5，2026-11-09，结合 S0–S7 实测统一远端 exec stdio 桥接与原位验证）。意图见 [../product/intent.md](../product/intent.md)；证据见 [../research/dsh-capabilities.md](../research/dsh-capabilities.md)、[../research/external-agents-cloud.md](../research/external-agents-cloud.md)、[../spike/reports/README.md](../spike/reports/README.md)。
 
 ## 1. 结论
 
 - 每次运行由一份**不可变的运行规格** `RunSpec{executor, model, effort, permission, location}` 描述。任务只存偏好，运行存事实。
 - 执行者只有**两种传输**：`dsh-native`（本地 DSH 会话，保真度最高）与 `acp`（其余一切，包括远端的 DSH）。
 - 位置的定义是「**代码和 agent 进程所在的地方**」。远端执行 = 在远端检出代码并在远端起 agent，经 stdio 桥回本机 Project Host；Host lease 失效时远端 Run 进入 `stale`，不再接受写命令。
-- Projects 给执行者的工具（提问、回报、写上下文）统一做成一个 **MCP 服务**；DSH 原生会话直接注册为工具，外部执行者经 ACP `session/new.mcpServers` 拿到同一套。所有调用经过 Engine 的 Run capability 校验，不以 bearer token 中的 Task id 代替授权。
-- 仓库环境文件是可执行输入，不是天然可信配置。首次执行或 hash 改变时需要人确认；不受信仓库默认使用隔离 HOME、无 SSH agent、无 runtime secrets 的 sandbox。
+- Projects 给执行者的工具（提问、回报、写上下文）统一做成一个 **MCP 服务**；DSH 原生会话直接注册为工具，外部执行者经 ACP `session/new.mcpServers` 拿到同一套（ACP SDK 1.4.0 要求 stdio 条目必填 `args` 与 `env: []`，否则静默丢弃）。所有调用经过 Engine 的 Run capability 校验，不以 bearer token 中的 Task id 代替授权。
+- 仓库环境文件是可执行输入，不是天然可信配置。首次执行或 hash 改变时需要人确认；不受信仓库默认使用隔离 HOME、无 SSH agent、无 runtime secrets 的 sandbox（在无 `bwrap`/容器隔离的宿主机上默认阻断或要求显式确认 `full-access`）。
 - 不使用 DSH 现有的 `subagent-acp / subagent-claude-code / subagent-codex` 来跑项目任务：它们是一次性的，丢弃过程事件，自动应答权限，不能按次选模型（`subagent-acp/src/run.ts:420-452`）。它们仍可作为 worker 内部的子代理工具使用。
 
 ```mermaid
 flowchart LR
-  Engine["Engine\n(单写者 / RunSpec)"] --> Host["Agent Host\n(executor-host 包)"]
+  Engine["Engine\n(单写者 / RunSpec)"] --> Host["Agent Host\n(src/executors)"]
   Host -- dsh-native --> DSH["本地 DSH 会话\nctx.agents.create (meta.cwd + agentOptions)"]
   Host -- acp/stdio --> L["本地子进程\nclaude-agent-acp / codex-acp\ngemini --acp / opencode acp"]
   Host -- acp/stdio over ssh / exec --> R["远端位置\n(SSH 主机 / Docker / 沙箱)\n同样的 ACP agent 或 dsh --profile acp"]
   L -. stdio RPC proxy .-> PM["projects-mcp 端点\n(主进程 Engine 内置)"]
-  R -. stdio bridge / ssh -R .-> PM
+  R -. 第二条 exec stdio 通道 .-> PM
   DSH -. tools .-> PM
 ```
 
@@ -76,7 +76,7 @@ interface ExecutorDriver {
 
 **`prompt(run, message, operationId, mode)` 的传输层映射**：
 - `dsh-native`：先由 Engine 校验 Run capability，再映射为 DSH 会话的 `inbox` 投递（`mode='queue'` 走 `followup`，`mode='steer'` 走 `steer`）。回执写入对应 effect，不把模型响应当作投递回执。
-- `acp`：ACP v1 的 `session/prompt` 是阻塞到本轮结束的同步 RPC，没有原生运行中 `steer`。`executor-host` 把每条消息先持久化为带 `operationId` 的 delivery effect，再在 `run:<id>` lane 内串行发送：
+- `acp`：ACP v1 的 `session/prompt` 是阻塞到本轮结束的同步 RPC，没有原生运行中 `steer`。`src/executors` 把每条消息先持久化为带 `operationId` 的 delivery effect，再在 `run:<id>` lane 内串行发送：
   - `mode='queue'`：从持久队列取出，等当前在途 `session/prompt` 返回后发送下一条；队列不能只存在内存。
   - `mode='steer'`（仅人显式「插话」时）：先向该会话发送 `session/cancel`，等待在途 prompt 以 `stopReason='cancelled'` 返回后再发送新 prompt。cancel 可能打断工具调用并留下半写文件，因此必须先产生风险 Question 或执行隔离回滚。
 - ACP `session/request_permission` 不走 `prompt`、`run.deliver` 或 `steer`。Agent Host 保存原始 request id 与 resolver；Question 回答调用 `resolvePermission` 直接回应该 RPC，成功后才写 Question answered 和审计。
@@ -129,10 +129,10 @@ interface LocationProvider {
 
 | 位置 | 检出 | 起进程 | 回本机与 MCP 桥接 | 阶段 |
 |---|---|---|---|---|
-| `local` | git worktree（`<dataDir>/worktrees/...`，无仓库项目为 `<dataDir>/workspaces/...`） | 本机子进程 | 直接 stdio；MCP 走薄 stdio 代理连本机 Loopback HTTP | M0 |
-| `ssh:<host>` | 远端 `git clone` / `worktree`，按项目缓存基础克隆 | `ssh host -- <cmd>` | ssh stdio；MCP 走 `ssh -R 127.0.0.1:0:127.0.0.1:<localMcpPort>` 远端回路转发 | 云端第一步 |
-| `docker:<name>` | 容器内 clone 或挂载 worktree | `docker exec -i` | exec stdio；MCP 走容器内 `projects-mcp-bridge.mjs`（经第二条 `docker exec -i` stdio 通道桥接回本机 `executor-host`） | 云端第一步（本机或远端 Docker） |
-| `sandbox:e2b` / `sandbox:daytona` | 沙箱内 clone（Daytona 有原生 git API） | 提供商 exec / PTY | 桥接 stdio；**不依赖沙箱出站直连 NAT 后的用户本机**，MCP 由注入沙箱的 `projects-mcp-bridge.mjs` 监听沙箱内 Unix Socket，经 `LocationProvider` 建立的第二条 `exec` stdio 通道回传本机 `executor-host` | 云端第二步 |
+| `local` | git worktree（`<dataDir>/worktrees/...`，无仓库项目为 `<dataDir>/workspaces/...`） | 本机子进程 | 直接 stdio；MCP 走薄 stdio 代理连本机 Loopback HTTP（`http: true` 时直连 `/projects/mcp`） | M0 |
+| `ssh:<host>` | 远端 `git clone` / `worktree`，按项目缓存基础克隆 | `ssh host -- <cmd>` | ssh stdio；MCP 统一走远端 `projects-mcp-bridge.mjs`（经 `LocationProvider` 第二条 `ssh exec` stdio 通道桥接回本机 `src/executors`，不依赖被受管网关拒绝的 `ssh -R`） | 云端第一步 |
+| `docker:<name>` | 容器内 clone 或挂载 worktree | `docker exec -i` | exec stdio；MCP 走容器内 `projects-mcp-bridge.mjs`（经第二条 `docker exec -i` stdio 通道桥接回本机 `src/executors`） | 云端第一步（本机或远端 Docker） |
+| `sandbox:e2b` / `sandbox:daytona` | 沙箱内 clone（Daytona 有原生 git API） | 提供商 exec / PTY | 桥接 stdio；**不依赖沙箱出站直连 NAT 后的用户本机**，MCP 由注入沙箱的 `projects-mcp-bridge.mjs` 经 `LocationProvider` 建立的第二条 `exec` stdio 通道回传本机 `src/executors` | 云端第二步 |
 | `vendor:*`（Cursor Cloud、Codex Cloud） | 厂商侧 | 厂商侧 | 只有状态、diff、PR | 延后；黑盒，UI 明确标注 |
 
 > 为什么不用 DSH 的 SSH provider：它在**部署级**替换 `ctx.fs / ctx.subprocess`，不能按会话或按任务选择，Web 视图也不认远程路径（`docs/subsystems/ssh.md:27`）。我们需要的是「每个运行一个位置」。
@@ -213,8 +213,8 @@ interface LocationProvider {
 
 - **单写者约束**：`projects.sqlite` 仅由 DSH 主进程内的 `Engine` 独占写锁。任何外部 stdio 子进程**不得**直接打开 `projects.sqlite`。
 - **DSH 原生会话**：直接用 `agent.ctx.tools.register` 注册到 worker preset，进程内直调 `Engine`。
-- **本地 ACP 执行者**：`session/new` 时以 `mcpServers` 传入无状态的薄代理脚本 `projects-mcp-stdio.mjs`，它把 MCP JSON-RPC 请求通过本机 Loopback HTTP（`http://127.0.0.1:<dshPort>/projects/mcp` + `Bearer <run_token>`）转发回 DSH 主进程的 `Engine`。
-- **远端 ACP 执行者**：不假设远端容器或云沙箱能出站直连 NAT 后的用户本机。SSH 位置走 `ssh -R` 远端回路端口转发；Docker 与 E2B / Daytona 沙箱由 `LocationProvider` 注入薄垫片 `projects-mcp-bridge.mjs`（监听容器内本地 Unix Socket，经第二条 `exec` stdio 通道桥接回宿主机 `executor-host`），携带每次运行的不可猜 capability token。token 只用于定位 Run；Engine 逐次校验 project/task/attempt/repo/path/role/write/epoch/expiry/host lease。
+- **本地 ACP 执行者**：`session/new` 时以 `mcpServers` 传入无状态的薄代理脚本 `projects-mcp-stdio.mjs`（ACP SDK 1.4.0 要求 stdio 条目必填 `args` 与 `env: []`，否则静默丢弃），它把 MCP JSON-RPC 请求通过本机 Loopback HTTP（`http://127.0.0.1:<dshPort>/projects/mcp` + `Bearer <run_token>`）转发回 DSH 主进程的 `Engine`；声明 `http: true` 的本机执行者可直连 `/projects/mcp`（必填 `headers: []`）。
+- **远端 ACP 执行者**：不假设远端主机、容器或云沙箱能出站直连 NAT 后的用户本机，也不依赖被受管 SSH 网关拒绝的 `ssh -R` 端口转发。SSH、Docker 与 E2B / Daytona 沙箱统一由 `LocationProvider` 注入薄垫片 `projects-mcp-bridge.mjs`（经 `LocationProvider` 建立的第二条 `exec` stdio 通道桥接回宿主机 `src/executors`），携带每次运行的不可猜 capability token。token 只用于定位 Run；Engine 逐次校验 project/task/attempt/repo/path/role/write/epoch/expiry/host lease。
 - 所有工具命令执行 capability 校验：`reviewer`、`read-only`、Mandate `write=false`、过期/撤销/暂停/handoff/Host 失联的 Run 不得调用写类工具；跨 repo、跨 Attempt 和越界路径 fail-closed。
 - 执行者原生的权限请求（ACP `session/request_permission`）由 Agent Host 转成带原始 request id 的 `Question{kind: gate, scope: action}`；用户回答直接调用 ACP resolver 回应原 RPC，再写 Question 和审计。`approval=auto-safe` 只允许明确的只读安全动作，其余进托盘，不能用 `steer` 代替权限响应。
 
@@ -231,9 +231,9 @@ UI 在启动摘要和运行头显示计费来源：「本机 Claude 登录」或
 
 ## 9. 验证在哪里跑
 
-- `task_report(done)` 后先停止 worker 当前回合并冻结 Checkout；Engine 固化 WIP commit，读取 `commit_sha`、Git `tree_sha` 和当前验证策略 hash。Run 未退出、Checkout 仍可写、存在未完成写类 effect 或 tree 不稳定时，不启动 validator。
-- validator 在独立只读快照上运行受信 `validation_policy_revision`；仓库 `.dsh/environment.json` 只能作为候选策略，首次使用或 hash 改变须由人确认。默认不注入 runtime secrets，网络和凭据按最小范围单独授权。
-- 验证通过或失败写入 `evidence` 表时，必须记录 commit/tree SHA、策略版本/hash、运行位置、命令摘要和结果引用。只有全部 provenance 与 Attempt 当前值匹配时，`verified` 才有效；验证期间 HEAD/tree/策略发生变化则写 `stale` 或 `failed`。
+- `task_report(done)` 后先停止 worker 当前回合并撤销写 capability、冻结 Checkout；Engine 固化 WIP commit，读取验证前的 `commit_sha`、Git `tree_sha` 和当前验证策略 hash。Run 未退出、Checkout 仍可写、存在未完成写类 effect 或 tree 不稳定时，不启动 validator。
+- validator 不另拷独立只读源码快照（避免丢失 `node_modules` 且只读快照在 Landlock 下并不防绝对路径越权），而是直接在冻结的原 Checkout 上原位复用已装依赖、运行受信 `validation_policy_revision`；仓库 `.dsh/environment.json` 只能作为候选策略，首次使用或 hash 改变须由人确认。默认不注入 runtime secrets，网络和凭据按最小范围单独授权；不受信仓库须在 `bwrap`/容器隔离下执行或经用户显式确认 `full-access`。
+- 验证结束后必须复核 `tree_sha` 与 `git status --porcelain` 未发生变化，写入 `evidence` 表时记录 commit/tree SHA、策略版本/hash、运行位置、命令摘要和结果引用。只有全部 provenance 与 Attempt 当前值匹配且验证前后 `tree_sha` 一致时，`verified` 才有效；验证期间 HEAD/tree/受跟踪文件或策略发生变化则写 `stale` 或 `failed` 并还原工作树。
 - 位置已回收或不可达时，保留 `unknown`/`stale` 状态，不能直接把本地旧结果当作当前证据；可接受的 CI 结果也必须绑定同一 commit/tree 和策略版本。
 - 云端运行的工件（截图、日志）经 `artifact_put`（内部调 `LocationProvider.pullFile`）回传到本机 `context/artifacts/<task>/`，Host 失联时不确认上传成功。
 

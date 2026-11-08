@@ -1,6 +1,6 @@
 # 域模型
 
-> 状态：现行（v4，2026-11-08，加入执行者 × 模型 × 位置及验证/授权/恢复不变量，见 [execution.md](execution.md)）。本页定义的名词在代码、工具、UI 文案和其他文档里统一使用，不另起别名。
+> 状态：现行（v5，2026-11-09，加入执行者 × 模型 × 位置及原位验证/授权/恢复不变量，见 [execution.md](execution.md)）。本页定义的名词在代码、工具、UI 文案和其他文档里统一使用，不另起别名。
 
 ## 1. 对象总览
 
@@ -77,7 +77,7 @@ erDiagram
 **Evidence**
 - `status ∈ {claimed, verified, failed}`；worker 只能写 `claimed`，只有 validator / CI 观察者能写 `verified` 或 `failed`。
 - 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`、`tree_sha`、`policy_revision`、`policy_hash`、运行位置和结果引用；仅当证据的 commit/tree、策略版本与 Attempt 当前值全部匹配时视为有效。worker 产生新提交、tree 变化或策略变化后，旧 `verified` Evidence 自动失效。`head_sha` 在 `task_report`、Run 退出、交接 / sync、PR head 变更与 `validate` 起止时刷新（见 runtime.md §4），不只在 validate 时更新。无仓库 Attempt 的 commit/tree SHA 允许为空，但仍须绑定策略版本与固定输入快照。
-- validator 只能在 worker Run 退出、Checkout 被冻结、验证快照只读且无未完成写 effect 后执行；验证期间发现 HEAD、tree 或策略 hash 变化，结果只能写 `failed`/`stale`，不得写当前有效的 `verified`。
+- validator 只能在 worker Run 退出、写 capability 撤销、Checkout 冻结（已固化 WIP commit 并记录 `commit_sha / tree_sha`）且无未完成写 effect 后，在原 Checkout 上原位执行；验证结束后复核 `tree_sha` 与 `git status --porcelain`，若验证期间发现 HEAD、tree、受跟踪文件或策略 hash 变化，结果只能写 `failed`/`stale`，不得写当前有效的 `verified`。
 
 **ContextItem**
 - `status ∈ {proposed, ratified, disputed, superseded}`；runbook 只有在关联 Attempt 存在当前有效的 `verified` Evidence 时才能从 `proposed` 转 `ratified`。

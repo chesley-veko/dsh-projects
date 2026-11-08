@@ -1,17 +1,17 @@
 # DSH 宿主集成
 
-> 状态：现行（v4，2026-11-08；worker list/filter 与执行信任受 ADR-0017/0018 约束）。执行层相关的 DSH 能力详见 [research/dsh-capabilities.md](../research/dsh-capabilities.md)。核查版本：`deepseek-harness@fcc0ad46`（DH）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
+> 状态：现行（v5，2026-11-09；单包收敛，S1+S2 宿主 UI 接缝补丁合并，执行信任受 ADR-0017/0018 约束）。执行层相关的 DSH 能力详见 [research/dsh-capabilities.md](../research/dsh-capabilities.md)。核查版本：`deepseek-harness@fcc0ad46`（DH，发布 tag `dsh-v0.2.2-rc.1@66491b05`）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
 
 ## 1. 交付形态
 
-一个 DSH bundle 插件，含客户端与服务端两部分，经 `cordis.patch.yml` 注册。不 fork dsh-superagent 的域模型，只复用其基础设施代码（见 [ADR-0001](../adr/0001-own-engine.md)）；对 DSH 宿主仅提议一处最小上游扩展 PR（`sidebar.regions` 区域插槽 + `SessionOrigin` 的 `'project-worker'` 左栏过滤，见 §2）。
+单一 DSH bundle 插件包 `dsh-projects`（内部按 `src/core`、`src/store`、`src/executors`、`src/locations`、`src/mcp`、`src/git`、`src/intake`、`src/server`、`src/client` 目录分层），含客户端与服务端两部分，统一一套 `tsdown` 配置（`external: [/^@deepseek-ai\//]`），经 `cordis.patch.yml` 注册。不 fork dsh-superagent 的域模型，只复用其基础设施代码（见 [ADR-0001](../adr/0001-own-engine.md)）；对 DSH 宿主提议一份统一最小上游扩展 PR（合并 S1 与 S2 接缝：`sidebar.regions` 区域插槽 + `SessionOrigin` 的 `'project-worker'` 左栏过滤 + `ui-conversation` 的 `conversation.view` 会话过滤 `when(session)` 与 `activeViewId` 暴露，见 §2）。
 
 ## 2. 客户端扩展点（已核实）
 
 | 需求 | 扩展点 | 状态与契约 |
 |---|---|---|
 | Projects 全局入口与首页 | `sidebar.panellist` 图标 → keyed 插槽 `main` 注册首页面板 | 可用。SA 用同样方式注册自己的面板（`SA/src/client/index.tsx:48-58`）；仅用于全局项目列表首页 |
-| 项目概览页与外部执行者运行视图 | `conversation.view`（`id: 'project-overview' \| 'project-run'`）+ `conversation.composer`（chain 插槽） | **不注册为 `main` 面板**：宿主 `ui-sidebar-right/src/client/index.ts:171`、`shell/RightbarRoot.tsx:35` 在 `activePanelId !== null` 时会强制收起右栏。挂在协调者会话的 `conversation.view` 下可保持 `activePanelId === null`、右栏常驻。S2 结论（部分完成，tag `dsh-v0.2.2-rc.1`）：视图 tab 来自全部已注册条目，宿主 tab 栏无按会话过滤，因此两个 tab 对所有会话可见，视图内容必须按会话自行门控；`conversation.composer` 接管按会话生效，同一协调者的 overview 与 run 只能共用接管 composer（宿主无可读 active view 状态），或由插件内部按当前激活视图切换渲染。UI 层因 web 鉴权缺陷未直接观察，以上为推断（源码）+ 构建/API 层验证（S2 报告） |
+| 项目概览页与外部执行者运行视图 | `conversation.view`（`id: 'project-overview' \| 'project-run'`）+ `conversation.composer`（chain 插槽） | **不注册为 `main` 面板**：宿主 `ui-sidebar-right/src/client/index.ts:171`、`shell/RightbarRoot.tsx:35` 在 `activePanelId !== null` 时会强制收起右栏。挂在协调者会话的 `conversation.view` 下可保持 `activePanelId === null`、右栏常驻。S2 查明 `dsh-v0.2.2-rc.1` 基线的 `viewTabs()` 无按会话过滤且 `ui-conversation` 不暴露 `activeViewId`；因此将 `conversation.view` 的 `when?: (session) => boolean` 过滤与 `activeViewId` 只读属性并入同一份上游宿主补丁（`ui-conversation` 增改 2 个文件约 15 行），使项目 Tab 仅对协调者会话可见，且底部输入框在 `chat` 视图保持原生 `InputBar`、在 `project-overview` 隐藏、在 `project-run` 接管为该 Run 输入框（[ADR-0003](../adr/0003-host-extension-points.md)、[S2 报告](../spike/reports/S2-coordinator-view.md)） |
 | 协调者会话行的项目图标、未读与待回答数 | `sidebar.session.row.leading` / `trailing`、`sidebar.workspaces.session.row.action` | 可用 |
 | 「加入项目」右键菜单 | `sidebar.workspaces.session.menu.item` | 可用，但标注 **Legacy**（`DH/packages/client/ui-workspace/src/client/contract/slots.ts:166-201`），需跟进迁移 |
 | 右栏 Project 面板 | `ctx.sidebarRightTabs.register` + 客户端 root 级 `ProjectUiStore` | 可用（`DH/packages/client/ui-sidebar-right/src/client/tab-registry.ts:253`）。宿主 `rightbar.session` 按 `sessionId` 隔离（`ui-sidebar-right/src/client/index.ts:160-181`），客户端通过 root 级 `ProjectUiStore` 按当前 `sessionId`（协调者或同项目本地 DSH worker）反查 `projectId`，跨会话共享同一项目的看板与详情状态 |
@@ -30,7 +30,12 @@
 | 注册 `main.conversation` 承载协调者 | single 插槽，注册即替换整个对话视图（`ui-conversation/apply.ts:337,584`）。协调者用普通会话即可 |
 | 客户端调用 `workspaceRegistry.archiveSession` | 服务端服务，客户端拿不到 |
 
-**左栏原生「项目」分组与 worker 隐藏路线**：全局入口用 panellist + 首页面板 + 会话行徽标承载；向 DSH 上游提交最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235` 一并过滤。该补丁在锁定发布版上实测为 18 个文件、26 行。基线按 S1/S2 报告口径为官方 tag `dsh-v0.2.2-rc.1`（`66491b05`）；S0 锁定的 `fcc0ad46` 是 release 合回 `origin/master` 的合并提交（PR #7873），比该 tag 晚 811 个提交。S0 复核的行号按 `fcc0ad46` 引用；实验运行的是 0.2.2-rc.1 发布构建（tag）。本次引用的文件中，`subagent/subagent/src/index.ts` 与 `control.ts` 在两个提交间有差异，其余一致，完整清单与不可改的普通路由检查点见 [ADR-0003](../adr/0003-host-extension-points.md)。按 [ADR-0018](../adr/0018-worker-visibility-seam.md)，M0 前必须在锁定 DSH 版本上验证真实列表过滤接缝；若插件前缀或 row slot 不能过滤，M0 阻断。不得把 row decoration 当作 hide/list-filter API，也不得用 subagent origin 或 archive 活动会话绕过。
+**左栏原生「项目」分组、worker 隐藏与会话视图门控（统一上游宿主补丁）**：全局入口用 panellist + 首页面板 + 会话行徽标承载；向 DSH 上游提交一份合并的最小补丁 PR：
+1. 增加 list 型 `sidebar.regions` 插槽；
+2. 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235` 一并过滤（实测 18 个文件、26 行）；
+3. 在 `DH/packages/client/ui-conversation`（`contract/slots.ts` 与 `apply.ts:211-222`）为 `conversation.view` 增加可选 `when?: (session) => boolean` 会话过滤，并向 `conversation.composer` / 会话控制器暴露只读 `activeViewId`（2 个文件、约 15 行），消除普通会话出现项目 Tab 与协调者输入框无视图区分的问题。
+
+基线按 S1/S2 报告口径为官方 tag `dsh-v0.2.2-rc.1`（`66491b05`）；S0 锁定的 `fcc0ad46` 是 release 合回 `origin/master` 的合并提交（PR #7873），比该 tag 晚 811 个提交。S0 复核的行号按 `fcc0ad46` 引用；实验运行的是 0.2.2-rc.1 发布构建（tag）。本次引用的文件中，`subagent/subagent/src/index.ts` 与 `control.ts` 在两个提交间有差异，其余一致，完整清单与不可改的普通路由检查点见 [ADR-0003](../adr/0003-host-extension-points.md)。按 [ADR-0018](../adr/0018-worker-visibility-seam.md)，Projects 左栏与中栏视图 UI 验收受该上游补丁合入与 DSH Web 控制台 401 修复门控；Engine、SQLite 状态推导与无 UI 本地闭环先行放行。不得把 row decoration 当作 hide/list-filter API，也不得用 subagent origin 或 archive 活动会话绕过。
 
 ## 3. 服务端扩展点（已核实）
 
@@ -55,9 +60,9 @@
 
 ### 3.1 S2–S4 实测修订（2026-11-08 初跑，2026-11-09 修复复跑，tag `dsh-v0.2.2-rc.1`）
 
-- **S2（部分完成）**：`conversation.view` 的 tab 来自全部已注册条目，宿主 tab 栏无按会话过滤（推断（源码）：`ui-conversation/apply.ts:211-222`），`project-overview` / `project-run` 对所有会话可见，视图内容须自行按会话门控。`conversation.composer` 接管按会话生效；宿主无可读的 active view 状态（`ui-conversation` 全仓无 `activeView` / `currentView`），同一协调者的两个视图只能共用接管 composer，或由插件内部按当前激活视图切换渲染。构建与 API 层已通过（消息 POST 返回 `{ok:true}`，协调者以默认模型回复）；tab、右栏与单输入框的 UI 观察因 dsh 0.2.2-rc.1 web 鉴权缺陷未完成（[S2 报告](../spike/reports/S2-coordinator-view.md)）。
+- **S2（部分完成，已并入统一上游补丁）**：S2 查明宿主 `viewTabs()`（`ui-conversation/apply.ts:211-222`）无按会话过滤，且 `ui-conversation` 不暴露 `activeViewId`。v5 架构将 `conversation.view` 的 `when(session)` 过滤与 `activeViewId` 暴露并入 S1 的同一份上游宿主补丁（见 §2 与 [ADR-0003](../adr/0003-host-extension-points.md)），不再保留普通会话显示项目 Tab 的占位妥协。构建与 API 层已通过（消息 POST 返回 `{ok:true}`，协调者以默认模型回复）；UI 观察待 DSH Web 401 修复与上游补丁合入后补做（[S2 报告](../spike/reports/S2-coordinator-view.md)）。
 - **S3（通过（有条件））**：围栏在 preset 挂载路径可用。协调者可见工具 33 → 2（`spike_projects_probe`、`spike_decoy_shell`）；被屏蔽工具不在 schemas（不可见即不可调）；decoy 被 guard 拦截且无副作用；未知全局工具名与 scoped 名都抛 `unknown global tool` 并回滚；`compactNow` 压缩 62 节点后 INDEX section 逐字节保留（299 B），`cacheReadTokens` 9600→20096（[S3 报告](../spike/reports/S3-coordinator-fence.md)）。
-- **S3 部署约束**：`@deepseek-ai/dsh-scope` 必须与宿主共用同一模块实例。插件构建要 `external: [/^@deepseek-ai\//]`；profile 不得安装与宿主同名的 `@deepseek-ai/*` 包，已重复安装时软链回宿主副本（spike 的 `relink-host-packages.sh`），每次 `pnpm install` 后重跑。
+- **S3 单包与外部化约束**：`@deepseek-ai/dsh-scope` 必须与宿主共用同一模块实例。为此 v5 取消 9 子包拆分，收敛为单一插件包 `dsh-projects`，统一 `tsdown` 配置 `external: [/^@deepseek-ai\//]`；部署 profile 不得重复安装与宿主同名的 `@deepseek-ai/*` 包（开发调试环境若出现 hoisted 副本，软链回宿主副本）。
 - **S3 preset 组合**：preset 不继承标准工具集；需要 INDEX 与压缩的协调者 preset 必须自带 compaction 组，否则 `compactNow` 返回 503。INDEX 用 `systemPrompt.section`，不用 message/context。
 - **S4（有条件通过）**：`ctx.agents.create` 只校验 `cwd` 为绝对路径，不建目录、不校验存在性，Engine 必须在 `checkout.prepare` 阶段自行校验并创建目录。`AgentRegistry.create` 不套全局默认模型，入口须把 `ctx.agentDefaultModel.currentSelection()` 合入 `agentOptions`；compaction 用 `agentPresets.serviceFor(agent, 'compaction')`（引擎在 preset 组内 isolate）。检查 5 的 Ticket 对照、6a/6b 与 7 未复验（[S4 报告](../spike/reports/S4-native-worker.md)）。
 
@@ -69,7 +74,7 @@
 | effect 表与退避执行器（升级支持 `lane_key` 与 `state`） | router preset 的「不读代码」提示词规则（改为 `tools.restrict` + `tools.guard`） |
 | `AgentDelivery` 幂等投递 | 单仓库线程键（改为 `github:<owner>/<repo>#<n>`） |
 | `WorkerSlots`（同步预留、人类 +1、唤醒/验证优先） | SA 自己的运维面板 |
-| Source / Eval / Mandate（仅在 `intake` 包，用于外部事件） | — |
+| Source / Eval / Mandate（仅在 `src/intake` 目录，用于外部事件） | — |
 
 ## 5. M0 前必须做的 spike
 

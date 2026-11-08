@@ -14,4 +14,4 @@
 
 ## 后果
 - 远端需要预装执行者 CLI（由 `agents` 字段驱动安装）。
-- 不假设云端沙箱或容器能出站直连 NAT 后的用户本机：`projects-mcp` 在 SSH 位置走 `ssh -R` 远端回路转发，在 Docker / E2B / Daytona 沙箱内由注入的薄垫片 `projects-mcp-bridge.mjs` 经 `LocationProvider` 建立的第二条 `exec` stdio 通道回传宿主机 `executor-host`；远端工件通过 `LocationProvider.pullFile` 拉回本机 `<context_dir>/artifacts/<task>/`。
+- 不假设远端主机、云端沙箱或容器能出站直连 NAT 后的用户本机，也不依赖被受管 SSH 网关拒绝的 `ssh -R` 端口转发：`projects-mcp` 在 SSH、Docker 与 E2B / Daytona 沙箱三类远端位置统一由注入的薄垫片 `projects-mcp-bridge.mjs` 经 `LocationProvider` 建立的第二条 `exec` stdio 通道回传宿主机 `src/executors`；远端工件通过 `LocationProvider.pullFile` 拉回本机 `<context_dir>/artifacts/<task>/`。

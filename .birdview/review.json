@@ -1,0 +1,331 @@
+{
+  "schemaVersion": "2",
+  "project": "DSH Projects",
+  "revision": "2026-11-09-arch-review-2",
+  "sourceRevision": "1ef6ca07f9fa3b3f7c1b0aca1d307e85b27283fe",
+  "workingTree": { "dirty": [] },
+  "baseline": "本轮基于 1ef6ca0（v4 架构 + S0–S7 Spike 实测报告与 ADR 修订合入后）。聚焦消除多轮打补丁累积的偶然复杂度、跨文档残留冲突与不必要的重型机制。",
+  "sources": [
+    { "path": "README.md", "kind": "doc" },
+    { "path": "docs/product/intent.md", "kind": "glossary" },
+    { "path": "docs/architecture/overview.md", "kind": "doc" },
+    { "path": "docs/architecture/domain-model.md", "kind": "doc" },
+    { "path": "docs/architecture/execution.md", "kind": "doc" },
+    { "path": "docs/architecture/runtime.md", "kind": "doc" },
+    { "path": "docs/architecture/dsh-integration.md", "kind": "doc" },
+    { "path": "docs/architecture/roadmap.md", "kind": "doc" },
+    { "path": "docs/adr/0003-host-extension-points.md", "kind": "adr" },
+    { "path": "docs/adr/0006-coordinator-tool-boundary.md", "kind": "adr" },
+    { "path": "docs/adr/0012-projects-mcp.md", "kind": "adr" },
+    { "path": "docs/adr/0013-verified-evidence-and-acceptance.md", "kind": "adr" },
+    { "path": "docs/adr/0017-repository-execution-trust.md", "kind": "adr" },
+    { "path": "docs/adr/0018-worker-visibility-seam.md", "kind": "adr" },
+    { "path": "docs/spike/reports/README.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S1-worker-visibility.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S2-coordinator-view.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S3-coordinator-fence.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S4-native-worker.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S5-acp-matrix.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S6-ssh-remote.md", "kind": "doc" },
+    { "path": "docs/spike/reports/S7-trust-boundary.md", "kind": "doc" }
+  ],
+  "scope": "结合 S0–S7 真机实测证据，全盘回看 v4 架构总览、域模型、运行时、执行层、宿主集成与 18 份 ADR，识别过度设计与前后不一致处。",
+  "gaps": [
+    "仓库尚无正式业务实现代码；本次优化针对架构设计契约、包结构切分与验证/通信机制的简化。",
+    "DSH 0.2.2-rc.1 Web 控制台打印 token 401 缺陷尚未修复，S1/S2 的浏览器视觉截图仍待补做。",
+    "Claude Code 与 Codex 的本机订阅登录（cli-login）及 macOS 沙箱行为尚未实测。"
+  ],
+  "language": "zh",
+  "candidates": [
+    {
+      "id": "single-bundle-plugin",
+      "title": "九个子包拆碎单进程插件",
+      "lede": "总览把单进程 DSH 插件拆成 9 个包；S3/S4 实测证明 workspace 多包解析会产生双份 dsh-scope Symbol，直接打崩工具围栏。",
+      "impact": "子包各自解析 @deepseek-ai/* 时，tools.restrict() 报 scope 错误、scoped 工具泄漏成全局工具，每次装依赖都得跑脚本软链补救。",
+      "strength": "strong",
+      "dependency": "in-process",
+      "modules": [],
+      "before": {
+        "caption": "单进程插件被拆成 9 个子包，workspace 提升导致宿主与插件拿到两份 dsh-scope 实例。",
+        "nodes": [
+          { "id": "dsh-host", "label": "DSH 宿主运行时", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "pkg-server", "label": "server / client 包", "kind": "module", "row": 1, "column": 0, "modules": [], "evidence": [0, 2] },
+          { "id": "pkg-core", "label": "core / store-sqlite 包", "kind": "module", "row": 1, "column": 1, "modules": [], "evidence": [0] },
+          { "id": "pkg-exec", "label": "executor / locations / mcp 包", "kind": "module", "row": 2, "column": 0, "modules": [], "evidence": [0] },
+          { "id": "dup-symbol", "label": "双份 dsh-scope Symbol", "kind": "step", "row": 2, "column": 1, "modules": [], "evidence": [1] },
+          { "id": "relink-sh", "label": "relink-host-packages.sh", "kind": "step", "row": 3, "column": 1, "modules": [], "evidence": [1] }
+        ],
+        "edges": [
+          { "from": "dsh-host", "to": "pkg-server" },
+          { "from": "pkg-server", "to": "pkg-core" },
+          { "from": "pkg-server", "to": "pkg-exec" },
+          { "from": "pkg-server", "to": "dup-symbol" },
+          { "from": "pkg-exec", "to": "dup-symbol" },
+          { "from": "dup-symbol", "to": "relink-sh" }
+        ]
+      },
+      "after": {
+        "caption": "收敛为单一插件包 dsh-projects，内部按目录分层，统一一套 tsdown external 配置。",
+        "nodes": [
+          { "id": "dsh-host", "label": "DSH 宿主运行时", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "single-plugin", "label": "dsh-projects 单包分层目录", "kind": "deep", "row": 1, "column": 1, "span": 2, "modules": [], "evidence": [], "absorbs": ["pkg-server", "pkg-core", "pkg-exec", "dup-symbol", "relink-sh"] }
+        ],
+        "edges": [
+          { "from": "dsh-host", "to": "single-plugin", "label": "单一入口 + 共享宿主 Symbol" }
+        ],
+        "seams": [ { "label": "目录级单向依赖（src/core 无 I/O）", "below": "single-plugin" } ]
+      },
+      "findings": [
+        {
+          "id": "f-nine-packages",
+          "kind": "shallow",
+          "note": "拆包诱发符号撕裂",
+          "detail": "[P1 高；观察] 交付物本身只是一个 DSH bundle 插件，拆成 9 个包并无独立发布需求，反而在 S3/S4 中触发 pnpm workspace 重复安装 @deepseek-ai/dsh-scope，导致 restrict() 崩溃与工具全局泄漏。",
+          "targets": ["dup-symbol", "relink-sh"],
+          "evidence": [0, 1, 2],
+          "confidence": "observed"
+        }
+      ],
+      "callerKnowledge": {
+        "before": ["9 个包构建顺序", "跨包 link 路径", "装依赖跑软链脚本"],
+        "after": ["单包 pnpm build", "目录边界 lint"]
+      },
+      "solution": "将 9 个規劃子包合并为单一插件包 dsh-projects（下设 src/core、src/store、src/executors、src/locations、src/mcp、src/server、src/client），统一 external 全部 @deepseek-ai/*。",
+      "deletionTest": { "verdict": "remove", "text": "删除跨子包 package.json 与 workspace 软链链路，保留模块目录边界与单向 import 规则。" },
+      "wins": [
+        { "kind": "depth", "text": "单包封装全部内部模块组装" },
+        { "kind": "locality", "text": "一次 tsdown 构建消除多实例风险" }
+      ],
+      "verification": [
+        "单包构建产物不含任何打包进来的 @deepseek-ai/* 代码。",
+        "src/core 下文件不 import 任何 Node I/O 或 @deepseek-ai/* 宿主模块。"
+      ],
+      "boundaries": ["保持 core 纯函数与 Engine 单写者职责不变", "保持 client 与 server 入口分离"],
+      "cost": "极低：当前尚未开始写业务代码，只需修改 overview.md §3 的包结构表。",
+      "evidence": [
+        { "path": "docs/architecture/overview.md", "lines": { "start": 67, "end": 79 }, "quote": "| 包 | 职责 | 不负责 |\n|---|---|---|\n| `core` | 域模型、命令、不变量、状态推导 | 任何 I/O |\n| `store-sqlite` | `node:sqlite`、迁移、事务、`change_log` | 业务规则 |\n| `server` | 注册 Cordis 服务、工具、HTTP/SSE、Driver | 直接写表（必须经 Engine） |\n| `executor-host` | 执行者驱动（dsh-native、acp）、探测、模型目录、统一事件流、权限请求转 Question | 决定何时启动 |\n| `locations` | 位置提供者（local / ssh / docker / sandbox）：检出、install、起进程、交接、回收、健康检查 | 选择位置 |\n| `projects-mcp` | 给所有执行者的统一工具面 | 业务规则（转发给 Engine 命令） |\n| `git` | 分支、refs 同步、preserved ref、WIP 提交 | 合并 PR |\n| `intake` | 外部事件准入（GitHub / 飞书），产出 Mandate | 交互式对话路径 |\n| `client` | 全部 UI | 业务状态（只读投影 + 发命令） |\n\n依赖单向：`client → server（HTTP）`；`server → core / store-sqlite / executor-host / locations / projects-mcp / git / intake`；`executor-host → locations`；`core` 不依赖任何包。", "note": "规划拆成 9 个独立包" },
+        { "path": "docs/spike/reports/S3-coordinator-fence.md", "lines": { "start": 58, "end": 60 }, "quote": "1. profile 的 `pnpm-workspace.yaml` 把本插件的 devDependencies（`@deepseek-ai/cordis`、`dsh-scope`、`dsh-tools`、`schemastery` 等）以 hoisted 方式装进了 `$LAB/profiles/superagent/node_modules/@deepseek-ai/`，与 dsh 宿主安装目录形成两份模块实例。\n2. `tools` 服务由 profile 那份 `dsh-tools` 提供时，其内部 `scopeOf()` 读的是 profile 那份 `dsh-scope` 的模块内 `Symbol('dsh.scope')`，而 agent scope 标签由宿主那份 `dsh-scope` 的 `createScope()` 打上。Symbol 不同 → `scopeOf(this.ctx) === undefined` → `tools.restrict()` 抛 `requires a scoped context`；同一根因下 setup 里的 `tools.register()` 找不到 scope，会把工具静默注册成全局工具（S4 检查 4 的 probe 泄漏）。\n3. 运行时实证：fence `apply()` 里临时 `createRequire` + 文件日志显示，fence 自身解析到宿主副本，`scopeOf(ctx)` 与 `scopeOf(ctx.tools.ctx)` 都是有效 scope 对象，唯独 `restrict()` 内部仍判 undefined，即两份 `dsh-scope`（诊断记录 `spikes/s3/evidence/r3-scope-diagnosis.jsonl`）。", "note": "多包 workspace 造成双份 Symbol" },
+        { "path": "docs/architecture/dsh-integration.md", "lines": { "start": 5, "end": 7 }, "quote": "## 1. 交付形态\n\n一个 DSH bundle 插件，含客户端与服务端两部分，经 `cordis.patch.yml` 注册。不 fork dsh-superagent 的域模型，只复用其基础设施代码（见 [ADR-0001](../adr/0001-own-engine.md)）；对 DSH 宿主仅提议一处最小上游扩展 PR（`sidebar.regions` 区域插槽 + `SessionOrigin` 的 `'project-worker'` 左栏过滤，见 §2）。", "note": "最终交付物只是一个 bundle 插件" }
+      ]
+    },
+    {
+      "id": "in-place-provenance-check",
+      "title": "只读验证快照既不防越权又丢依赖",
+      "lede": "ADR-0013 要求每次验证另建只读代码快照；S7 实测证明只读快照在 Landlock 下完全不防越权，还会丢掉 Checkout 已装好的 node_modules。",
+      "impact": "每次跑测试若另拷一份只读源码树，要么因缺少 node_modules 和构建缓存而失败，要么每次验证都重跑一遍 install，且并未换来安全隔离。",
+      "strength": "strong",
+      "dependency": "local-substitutable",
+      "modules": [],
+      "before": {
+        "caption": "worker 退出后另建只读代码快照跑 validate，既丢掉依赖缓存，又在 Landlock 下被绝对路径读穿。",
+        "nodes": [
+          { "id": "worker-run", "label": "Worker Run 退出", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "checkout", "label": "原 Checkout（含依赖）", "kind": "module", "row": 1, "column": 0, "modules": [], "evidence": [1] },
+          { "id": "wip-commit", "label": "固化 WIP commit + tree_sha", "kind": "step", "row": 1, "column": 1, "modules": [], "evidence": [0, 1] },
+          { "id": "ro-snapshot", "label": "拷贝独立只读代码快照", "kind": "step", "row": 2, "column": 1, "modules": [], "evidence": [0, 2] },
+          { "id": "validator", "label": "运行 validate 命令", "kind": "module", "row": 3, "column": 1, "modules": [], "evidence": [1, 3] },
+          { "id": "evidence", "label": "Evidence (verified)", "kind": "module", "row": 3, "column": 0, "modules": [], "evidence": [0] }
+        ],
+        "edges": [
+          { "from": "worker-run", "to": "wip-commit" },
+          { "from": "checkout", "to": "wip-commit" },
+          { "from": "wip-commit", "to": "ro-snapshot" },
+          { "from": "ro-snapshot", "to": "validator" },
+          { "from": "validator", "to": "evidence" }
+        ]
+      },
+      "after": {
+        "caption": "冻结 Checkout 后原位复用依赖跑 validate，前后比对 tree_sha 防篡改；安全边界交由容器/bwrap 门控。",
+        "nodes": [
+          { "id": "worker-run", "label": "Worker Run 退出", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "checkout", "label": "冻结的原 Checkout", "kind": "module", "row": 1, "column": 0, "modules": [], "evidence": [] },
+          { "id": "in-place-gate", "label": "原位验证与前后 tree_sha 校核", "kind": "deep", "row": 1, "column": 1, "span": 2, "modules": [], "evidence": [], "absorbs": ["wip-commit", "ro-snapshot", "validator"] },
+          { "id": "evidence", "label": "Evidence (verified)", "kind": "module", "row": 2, "column": 2, "modules": [], "evidence": [] }
+        ],
+        "edges": [
+          { "from": "worker-run", "to": "in-place-gate" },
+          { "from": "checkout", "to": "in-place-gate", "label": "复用已装依赖" },
+          { "from": "in-place-gate", "to": "evidence", "label": "前后 tree_sha 一致" }
+        ],
+        "seams": [ { "label": "防篡改靠Git树，防逃逸靠沙箱", "below": "in-place-gate" } ]
+      },
+      "findings": [
+        {
+          "id": "f-snapshot-theater",
+          "kind": "duplicate",
+          "note": "只读快照无效且重",
+          "detail": "[P1 高；观察] S7 条件 D 实测证明只读代码快照在 Landlock 下照样逃逸绝对路径读、外网和 /tmp SSH 套接字；而防篡改只需验证前后比对 commit_sha/tree_sha 与 git status，另拷只读快照纯属多余开销。",
+          "targets": ["ro-snapshot"],
+          "evidence": [0, 1, 2, 3],
+          "confidence": "observed"
+        }
+      ],
+      "callerKnowledge": {
+        "before": ["快照如何带依赖", "何时恢复写权限", "快照是否算隔离"],
+        "after": ["前后tree_sha一致", "隔离归沙箱门控"]
+      },
+      "solution": "取消独立只读快照拷贝：确认 Run 退出并撤销写 capability 后，在原 Checkout 打 WIP commit 记录 (commit_sha, tree_sha)，原位执行受信 validate 命令，结束后复核 tree_sha 未变即签发 verified。",
+      "deletionTest": { "verdict": "remove", "text": "删除只读代码快照目录复制与权限翻转步骤，保留 WIP commit 固化、前后 tree_sha 校验与受信策略版本绑定。" },
+      "wins": [
+        { "kind": "leverage", "text": "直接复用 Checkout 的 node_modules 秒级跑测试" },
+        { "kind": "seam", "text": "防篡改（Git tree）与防逃逸（OS sandbox）职责正交" }
+      ],
+      "verification": [
+        "验证命令执行期间若改写受跟踪源码导致 tree_sha 变化，结果判定为 failed/stale 并还原。",
+        "无需重跑 install 即可在原 Checkout 执行 pnpm test 并产出绑定 tree_sha 的 verified Evidence。"
+      ],
+      "boundaries": ["受信 validation_policy_hash 确认机制不变", "不受信仓库仍受 ADR-0017 的 bwrap/容器或 full-access 门控约束"],
+      "cost": "低：修订 ADR-0013、ADR-0017、runtime.md §4 与 execution.md §9 中的“独立只读快照”表述。",
+      "adrConflict": {
+        "path": "docs/adr/0013-verified-evidence-and-acceptance.md",
+        "reason": "ADR-0013 第 13 行要求在单独、只读的 Checkout 快照上运行 validator；建议改为在已停止 Run 并冻结写权限的原 Checkout 上运行并校验前后 tree_sha 一致。"
+      },
+      "evidence": [
+        { "path": "docs/adr/0013-verified-evidence-and-acceptance.md", "lines": { "start": 13, "end": 13 }, "quote": "- validator 在单独、只读的 Checkout 快照上运行，环境变量采用最小显式 allowlist。Evidence 记录 `commit_sha`、`tree_sha`、`policy_revision`、命令摘要、运行位置、退出状态和结果引用。只有被验证的 tree 与 Attempt 当前 head 一致时，Evidence 才有效。", "note": "ADR-0013 要求单独只读快照" },
+        { "path": "docs/architecture/runtime.md", "lines": { "start": 80, "end": 81 }, "quote": "- `done` 后 Engine 先停止当前 Run 并等待退出，撤销该 Run capability 的写能力，冻结 Checkout，确认没有未完成的写 effect，再创建 WIP commit/固定 tree snapshot；任一步失败都不启动 validator。\n- validator 在独立只读快照上按受信 `validation_policy_revision/hash` 执行，不读取 worker 分支中未经确认的验证策略，不默认注入 secrets。结果记录 commit/tree/policy provenance、位置、命令摘要、退出状态和工件引用；任何输入变化写 `stale`，不得产生当前有效 `verified`。", "note": "先固定 tree snapshot 又另起只读快照" },
+        { "path": "docs/adr/0017-repository-execution-trust.md", "lines": { "start": 15, "end": 15 }, "quote": "- validator 在无运行时 secrets、独立隔离、只读代码快照上执行；如果验证确需外部服务凭据，必须以独立的最小测试凭据和网络策略授权，不能复用生产凭据。只读快照只保护快照本身不被改写，不阻止执行体按绝对路径读取宿主其他路径，因此仍须外部隔离（`bwrap` / 容器）或按 `full-access` 风险模式显式放行。", "note": "ADR-0017 承认只读快照不防越权" },
+        { "path": "docs/spike/reports/S7-trust-boundary.md", "lines": { "start": 32, "end": 37 }, "quote": "| D validator 只读快照 × P1 | $HOME 侧 BLOCKED，绝对路径侧 ESCAPED（须禁用或须 full-access 风险确认） | `/tmp/s7-condition-D.log` | 与条件 B 完全相同 |\n| D validator 只读快照 × P2 | $HOME 侧 BLOCKED，绝对路径侧 ESCAPED（须禁用或须 full-access 风险确认） | 同上 | 与条件 B 完全相同 |\n| D validator 只读快照 × P3 | ESCAPED（须禁用或须 full-access 风险确认） | 同上 | 与条件 B 完全相同 |\n| D validator 只读快照 × P4 | 符合设计预期 | 同上；`/tmp/s7-hostcheck-D.log` | HOME=WRITE-OK（落在 VHOME 内，ALLOWED-ISOLATED），TMP=WRITE-OK（ALLOWED-TEMP）；宿主 /tmp 标记可见 04:18:44–04:18:48；diff -r 证实快照与原件完全一致（运行未修改快照）；快照与 VHOME 已恢复写权限后删除 |\n| D validator 只读快照 × P5 | ESCAPED（须禁用或须 full-access 风险确认） | 同上 | HTTP 200 |\n| D validator 只读快照 × P6 | $HOME 侧 BLOCKED，绝对路径侧 ESCAPED（须禁用或须 full-access 风险确认） | 同上 | 与条件 B 完全相同 |", "note": "S7 实测只读快照P1/P2/P3/P5/P6全逃逸" }
+      ]
+    },
+    {
+      "id": "unified-host-ui-patch",
+      "title": "宿主视图无过滤导致全局 Tab 污染",
+      "lede": "S1 已决定向上游提 18 文件补丁隐藏 worker；但 S2 发现 conversation.view 无会话过滤且 composer 不识视图，仍留着客户端硬伤。",
+      "impact": "所有非项目的普通聊天会话顶部都会冒出 project-overview/run 两个 tab；协调者会话切回聊天时输入框仍被接管。",
+      "strength": "strong",
+      "dependency": "ports-adapters",
+      "modules": [],
+      "before": {
+        "caption": "S1 补丁只管左栏 worker 过滤；中栏 conversation.view 与 composer 因缺宿主门控而泄漏到全局与全视图。",
+        "nodes": [
+          { "id": "s1-patch", "label": "上游补丁：SessionOrigin", "kind": "step", "row": 0, "column": 0, "modules": [], "evidence": [2] },
+          { "id": "conv-view", "label": "conversation.view 插槽", "kind": "module", "row": 1, "column": 0, "modules": [], "evidence": [0, 1] },
+          { "id": "conv-composer", "label": "conversation.composer 接管", "kind": "module", "row": 1, "column": 1, "modules": [], "evidence": [0, 1] },
+          { "id": "normal-session", "label": "普通会话出现项目 Tab", "kind": "external", "row": 2, "column": 0, "modules": [], "evidence": [1] },
+          { "id": "coord-chat", "label": "协调者聊天被接管输入框", "kind": "external", "row": 2, "column": 1, "modules": [], "evidence": [1] }
+        ],
+        "edges": [
+          { "from": "conv-view", "to": "normal-session", "label": "viewTabs() 无过滤" },
+          { "from": "conv-composer", "to": "coord-chat", "label": "无 activeView 状态" }
+        ]
+      },
+      "after": {
+        "caption": "将视图 when(session) 门控与 activeViewId 暴露并入同一上游最小补丁，客户端零旁路同步。",
+        "nodes": [
+          { "id": "host-seam-patch", "label": "统一上游宿主 UI 接缝补丁", "kind": "deep", "row": 0, "column": 1, "span": 2, "modules": [], "evidence": [], "absorbs": ["s1-patch", "conv-view", "conv-composer"] },
+          { "id": "normal-session", "label": "普通会话（无项目 Tab）", "kind": "external", "row": 2, "column": 1, "modules": [], "evidence": [] },
+          { "id": "coord-chat", "label": "协调者按激活视图切输入框", "kind": "external", "row": 2, "column": 2, "modules": [], "evidence": [] }
+        ],
+        "edges": [
+          { "from": "host-seam-patch", "to": "normal-session", "label": "仅协调者显示 Tab" },
+          { "from": "host-seam-patch", "to": "coord-chat", "label": "仅 run/overview 接管" }
+        ],
+        "seams": [ { "label": "宿主提供会话级 Tab 过滤与当前视图 ID", "below": "host-seam-patch" } ]
+      },
+      "findings": [
+        {
+          "id": "f-view-tab-leak",
+          "kind": "leak",
+          "note": "Tab 与输入框泄漏",
+          "detail": "[P1 高；观察] S2 源码与构建核实：宿主 viewTabs() 不支持按 session 过滤，导致所有普通会话都显示项目 tab；且 ui-conversation 不暴露 activeView，导致 composer 接管无法仅在 project-run 视图生效。",
+          "targets": ["conv-view", "conv-composer", "normal-session", "coord-chat"],
+          "evidence": [0, 1, 2],
+          "confidence": "observed"
+        }
+      ],
+      "callerKnowledge": {
+        "before": ["普通会话误点Tab", "自建状态猜当前Tab", "多Run塞进单Tab"],
+        "after": ["when按会话过滤", "activeViewId门控"]
+      },
+      "solution": "既然 S1 已需向 DSH 上游提交 18 文件补丁，顺手在 ui-conversation 中补齐 conversation.view 的 when(session) 过滤与 activeViewId 暴露（约 2 个文件 15 行），一次性解决左栏与中栏接缝。",
+      "deletionTest": { "verdict": "narrow", "text": "删掉普通会话里的“当前会话不是协调者”占位提示与双视图共用接管输入框的妥协方案。" },
+      "wins": [
+        { "kind": "seam", "text": "上游一次 PR 同时解决 S1 与 S2 两个宿主限制" },
+        { "kind": "locality", "text": "协调者聊天、概览、外部运行三种底部状态互不串扰" }
+      ],
+      "verification": [
+        "普通非项目会话顶部不出现 project-overview 与 project-run tab。",
+        "协调者会话在 chat 视图使用宿主原生 InputBar，切到 project-overview 隐藏输入框，切到 project-run 接管为该 Run 输入框。"
+      ],
+      "boundaries": ["仍不使用 main 面板承载概览与运行视图，确保右栏常驻", "不修改宿主右栏实现"],
+      "cost": "极低：在已有 18 文件上游补丁草案基础上仅增加 ui-conversation 的 2 个文件。",
+      "evidence": [
+        { "path": "docs/adr/0003-host-extension-points.md", "lines": { "start": 11, "end": 11 }, "quote": "- 项目概览页（`id: 'project-overview'`）与外部执行者运行视图（`id: 'project-run'`）注册进 `conversation.view` 插槽（避开宿主 `ui-trajectory` 已占用的 `'trajectory'` ID），配合 `conversation.composer` chain 插槽接管底部输入区；**不使用 `main` 面板承载它们**，因为宿主 `ui-sidebar-right` 在 `activePanelId !== null` 时会强制收起右栏。", "note": "设计要求 overview 隐藏、run 接管输入框" },
+        { "path": "docs/spike/reports/S2-coordinator-view.md", "lines": { "start": 31, "end": 32 }, "quote": "1. **tab 全局可见**：在普通会话（非协调者）里也能看到 project-overview / project-run 两个 tab（源码已定：`viewTabs()` 无按会话过滤）。反例操作：新建普通会话，截图 tab 栏（应有两 tab）；点开 project-run，应看到占位提示（\"当前会话不是协调者\"），而不是空白或报错。 【live 结果】未验证（UI 受阻）：浏览器未打开，未做新建普通会话与 tab 栏截图；源码已定 tab 无按会话过滤。\n2. **接管不分视图**：project-overview 里输入框同样被接管（无可读的 active view 状态，接管只能按会话定范围）。反例操作：在 overview 里看底部——应是接管输入框，而不是常驻输入框。若 overview 里出现常驻输入框，说明 select 或 scope 与源码推断不一致，记录下来。 【live 结果】未验证（UI 受阻）：未做 overview 底部观察；源码已定无可读 active view 状态，接管按会话定范围。", "note": "S2 查明 tab 全局可见且接管不分视图" },
+        { "path": "docs/spike/reports/README.md", "lines": { "start": 24, "end": 26 }, "quote": "**放行 Engine、SQLite 状态推导与无 UI 本地闭环开发。** Projects 左栏 UI 验收受两道门控：\n\n1. **S1 上游补丁合入门控**：`SessionOrigin='project-worker'` 的 18 文件 / 26 行补丁须合入上游（或等价真实接缝落地）并重跑 S1 全部检查（含左栏视觉观察与 3a–3e）后，左栏「worker 不出现在未分组」才可宣称完成。", "note": "UI 验收本就以合入上游补丁为前提" }
+      ]
+    },
+    {
+      "id": "retire-ssh-reverse-tunnel",
+      "title": "远端 MCP 回路在文档间前后打架",
+      "lede": "ADR-0012 已因网关拒绝 ssh -R 改走第二条 exec 通道桥接，但 execution.md 仍把 ssh -R 写成 SSH 位置的主路径。",
+      "impact": "实现者按 execution.md 写出的 SSH 位置驱动会在 Instabox 等受管云主机上因端口转发失败而断路，且维护两套远端桥接增加复杂度。",
+      "strength": "worth-exploring",
+      "dependency": "ports-adapters",
+      "modules": [],
+      "before": {
+        "caption": "SSH 走 ssh -R 转发而 Docker/沙箱走 exec stdio 桥接；execution.md 与 ADR-0012 结论冲突。",
+        "nodes": [
+          { "id": "remote-acp", "label": "远端 ACP 执行者", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "ssh-r", "label": "execution.md: ssh -R 转发", "kind": "step", "row": 1, "column": 0, "modules": [], "evidence": [0, 1] },
+          { "id": "exec-bridge", "label": "ADR-0012: exec stdio 桥接", "kind": "step", "row": 1, "column": 1, "modules": [], "evidence": [1, 2] },
+          { "id": "engine-mcp", "label": "本机 Engine /projects/mcp", "kind": "module", "row": 2, "column": 1, "modules": [], "evidence": [1] }
+        ],
+        "edges": [
+          { "from": "remote-acp", "to": "ssh-r" },
+          { "from": "remote-acp", "to": "exec-bridge" },
+          { "from": "ssh-r", "to": "engine-mcp" },
+          { "from": "exec-bridge", "to": "engine-mcp" }
+        ]
+      },
+      "after": {
+        "caption": "所有远端位置（SSH / Docker / 沙箱）统一使用 LocationProvider 第二条 exec stdio 通道桥接。",
+        "nodes": [
+          { "id": "remote-acp", "label": "远端 ACP 执行者", "kind": "caller", "row": 0, "column": 1, "modules": [], "evidence": [] },
+          { "id": "unified-bridge", "label": "统一远端 exec stdio 桥接", "kind": "deep", "row": 1, "column": 1, "span": 2, "modules": [], "evidence": [], "absorbs": ["ssh-r", "exec-bridge"] },
+          { "id": "engine-mcp", "label": "本机 Engine /projects/mcp", "kind": "module", "row": 2, "column": 1, "modules": [], "evidence": [] }
+        ],
+        "edges": [
+          { "from": "remote-acp", "to": "unified-bridge", "label": "env: [] + stdio" },
+          { "from": "unified-bridge", "to": "engine-mcp", "label": "第二条 exec 通道" }
+        ],
+        "seams": [ { "label": "远端MCP只依赖exec通道", "below": "unified-bridge" } ]
+      },
+      "findings": [
+        {
+          "id": "f-ssh-r-conflict",
+          "kind": "missing-seam",
+          "note": "SSH 回路口径冲突",
+          "detail": "[P2 中；观察] S6 实测受管 SSH 网关拒绝 -R 远程端口转发，ADR-0012 已改用第二条 ssh exec 通道跑 projects-mcp-bridge.mjs，但 execution.md §4.1 和 §7 未同步更新，仍写着 ssh -R。",
+          "targets": ["ssh-r", "exec-bridge"],
+          "evidence": [0, 1, 2],
+          "confidence": "observed"
+        }
+      ],
+      "callerKnowledge": {
+        "before": ["SSH网关是否放行-R", "何时切到exec桥接", "必填env:[]字段"],
+        "after": ["远端一律走exec通道", "配置构造器强约束"]
+      },
+      "solution": "彻底移除 ssh -R 分支，让 SSH、Docker、云沙箱三类远端位置共用同一套 projects-mcp-bridge.mjs（经 LocationProvider 第二条 exec stdio 通道回连），并同步修正 execution.md。",
+      "deletionTest": { "verdict": "remove", "text": "删除 ssh -R 端口转发逻辑与文档分支，所有远端位置统一复用 exec stdio 桥接。" },
+      "wins": [
+        { "kind": "depth", "text": "三种远端位置共享唯一的 MCP 桥接实现" },
+        { "kind": "testability", "text": "不依赖 SSH 服务端网关的 AllowTcpForwarding 配置" }
+      ],
+      "verification": [
+        "在禁用 AllowTcpForwarding 的 SSH 主机上，远端 ACP 执行者仍可通过第二条 ssh exec stdio 通道调用 projects_echo。"
+      ],
+      "boundaries": ["本机 ACP 执行者仍走 loopback HTTP 或 projects-mcp-stdio.mjs", "Engine 的 run_capability 校验不变"],
+      "cost": "极低：清理 execution.md 与 runtime.md 中的 ssh -R 表述，M4 少写一套隧道代码。",
+      "evidence": [
+        { "path": "docs/architecture/execution.md", "lines": { "start": 133, "end": 134 }, "quote": "| `ssh:<host>` | 远端 `git clone` / `worktree`，按项目缓存基础克隆 | `ssh host -- <cmd>` | ssh stdio；MCP 走 `ssh -R 127.0.0.1:0:127.0.0.1:<localMcpPort>` 远端回路转发 | 云端第一步 |\n| `docker:<name>` | 容器内 clone 或挂载 worktree | `docker exec -i` | exec stdio；MCP 走容器内 `projects-mcp-bridge.mjs`（经第二条 `docker exec -i` stdio 通道桥接回本机 `executor-host`） | 云端第一步（本机或远端 Docker） |", "note": "execution.md §4.1 仍写 ssh -R" },
+        { "path": "docs/architecture/execution.md", "lines": { "start": 217, "end": 217 }, "quote": "- **远端 ACP 执行者**：不假设远端容器或云沙箱能出站直连 NAT 后的用户本机。SSH 位置走 `ssh -R` 远端回路端口转发；Docker 与 E2B / Daytona 沙箱由 `LocationProvider` 注入薄垫片 `projects-mcp-bridge.mjs`（监听容器内本地 Unix Socket，经第二条 `exec` stdio 通道桥接回宿主机 `executor-host`），携带每次运行的不可猜 capability token。token 只用于定位 Run；Engine 逐次校验 project/task/attempt/repo/path/role/write/epoch/expiry/host lease。", "note": "execution.md §7 仍把 SSH 与 Docker 分叉" },
+        { "path": "docs/adr/0012-projects-mcp.md", "lines": { "start": 19, "end": 19 }, "quote": "- **远端默认走第二条 exec 通道**：该 SSH 网关拒绝 `ssh -R`（`phase-a/rpc.stderr.log` 报 `remote port forwarding failed`；手动复测 `-R 8931`、`-R 18931` 均失败而端口空闲；dsh-02 的 sshd 默认允许转发，推断拒绝在网关侧，未获配置原文）。远端执行者的默认回路因此定为 `projects-mcp-bridge.mjs` 经 `LocationProvider` 第二条 `ssh exec` stdio 通道桥接回本机；`ssh -R` 只作为网关允许时的备选。桥接回路本身未实现、未验证。", "note": "ADR-0012 已改为默认走第二条 exec 通道" }
+      ]
+    }
+  ],
+  "recommendation": {
+    "candidate": "single-bundle-plugin",
+    "reason": "S3/S4 真机实验已证明多子包 workspace 会引发 @deepseek-ai/dsh-scope 双实例 Symbol 撕裂；在 M0 建仓前先收敛为单包分层目录，同时去掉无效的只读快照拷贝（候选 2）并清理文档冲突（候选 3、4），能让整套架构瞬间清爽。"
+  }
+}

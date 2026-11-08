@@ -1,6 +1,6 @@
 # 运行时设计
 
-> 状态：现行（v4，2026-11-08，采纳 ADR-0013–0018）。名词定义见 [domain-model.md](domain-model.md)；执行者、模型、位置的细节见 [execution.md](execution.md)。
+> 状态：现行（v5，2026-11-09，结合 S0–S7 实测完成单包收敛、原位验证与接缝统一）。名词定义见 [domain-model.md](domain-model.md)；执行者、模型、位置的细节见 [execution.md](execution.md)。
 
 ## 1. Engine：单写者与先存后做
 
@@ -70,15 +70,15 @@
 1. 认领 `(project, task)` → 解析 RunSpec（任务覆盖 > 负责人 > 项目角色默认 > 执行者默认）→ 预留 WorkerSlot（默认 3，范围 1–16；人类跟进可超额 1 槽；唤醒、`validate` 与只读 `reviewer Run` 优先于新启动）。
 2. 启动摘要（UI）列出：Task、仓库（无仓库项目显示「无代码仓库」）、基线分支、**执行者 · 模型 · 位置**、计费来源、检出路径、refs 新鲜度；refs 过期先提示刷新；位置不可用、执行者未安装或未登录则阻断并给出修复入口。
 3. 以下 3'–6' 步描述本地位置 + DSH 执行者；其他组合见 [execution.md](execution.md) §3–§4。
-3'. 有仓库项目由 `git` 在路径锁内创建 `<dataDir>/worktrees/<project>/<attempt>`，分支前缀由环境决定：本机 `agent/<task-id 小写>-<slug>`（如 `agent/you-4-staging-verify`），远程 sandbox `sandbox/<task-id 小写>-<slug>`，并记录初始 `head_sha`；无仓库项目直接创建受管空目录 `<dataDir>/workspaces/<project>/<attempt>`。
-4'. `Engine` 在创建 `Run` 记录时预先生成确定性的 `session_ref = "proj-worker-" + run_id`。`executor-host`（DSH 原生驱动）调用 `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })` 创建会话（`agentOptions.model` 见 `core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `types.ts:83`），`setup` 中挂载 `dsh-projects-worker` preset，初始模型由 `agentOptions` 提供（不调用 `workspaceRegistry.create` 以免新增顶层工作区；不调用 `sessionController.selectModel` 以免覆盖用户的全局默认模型；左栏过滤必须用已通过 Spike 的真实 list/filter 接缝；`proj-worker-` 前缀和会话行 slot 只作识别/装饰，不能当隐藏接口，未验证时阻断 M0，同时保持 `delegationDepth = 0` 使 worker 可正常使用 `subagent` 工具与文件上传）。
+3'. 有仓库项目由 `src/git` 在路径锁内创建 `<dataDir>/worktrees/<project>/<attempt>`，分支前缀由环境决定：本机 `agent/<task-id 小写>-<slug>`（如 `agent/you-4-staging-verify`），远程 sandbox `sandbox/<task-id 小写>-<slug>`，并记录初始 `head_sha`；无仓库项目直接创建受管空目录 `<dataDir>/workspaces/<project>/<attempt>`。
+4'. `Engine` 在创建 `Run` 记录时预先生成确定性的 `session_ref = "proj-worker-" + run_id`。`src/executors`（DSH 原生驱动）调用 `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })` 创建会话（`agentOptions.model` 见 `core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `types.ts:83`），`setup` 中挂载 `dsh-projects-worker` preset，初始模型由 `agentOptions` 提供（不调用 `workspaceRegistry.create` 以免新增顶层工作区；不调用 `sessionController.selectModel` 以免覆盖用户的全局默认模型；左栏过滤必须用已通过 Spike 的真实 list/filter 接缝；`proj-worker-` 前缀和会话行 slot 只作识别/装饰，不能当隐藏接口，未验证时阻断 M0，同时保持 `delegationDepth = 0` 使 worker 可正常使用 `subagent` 工具与文件上传）。
 5'. 首条消息包含：Task 原文（不经协调者转述）、检出说明（原始仓库、检出根目录、分支、「所有改动只在检出目录内」）、`INDEX.md`、以及相关 runbook 的相对路径（提示 worker 使用 `context_read(rel_path)` 按需读取，不传宿主机绝对路径）。
 6'. 环境按信任级别构造：默认使用隔离 `HOME`、不传 `SSH_AUTH_SOCK`、剥离父进程 `DSH_*` 与敏感变量；仅用户显式选择 `credential=cli-login` 且 sandbox 能力已验证时，才按次申请本机 CLI 登录态。项目声明变量按 Run capability 注入；install/start/validator 默认不拿 runtime secrets。
 
 **结束与验证**
 - worker 调 `task_report(state, summary)` 声明 `done | blocked | failed`（所有执行者经 projects-mcp 拿到同一工具）；声明只产生候选事实，Engine 按 Run capability 校验。
-- `done` 后 Engine 先停止当前 Run 并等待退出，撤销该 Run capability 的写能力，冻结 Checkout，确认没有未完成的写 effect，再创建 WIP commit/固定 tree snapshot；任一步失败都不启动 validator。
-- validator 在独立只读快照上按受信 `validation_policy_revision/hash` 执行，不读取 worker 分支中未经确认的验证策略，不默认注入 secrets。结果记录 commit/tree/policy provenance、位置、命令摘要、退出状态和工件引用；任何输入变化写 `stale`，不得产生当前有效 `verified`。
+- `done` 后 Engine 先停止当前 Run 并等待退出，撤销该 Run capability 的写能力，冻结 Checkout，确认没有未完成的写 effect，再创建 WIP commit 并记录验证前的 `(commit_sha, tree_sha)`；任一步失败都不启动 validator。
+- validator 不另拷独立只读源码快照（S7 实测只读快照在 Landlock 下不防绝对路径越权，且会丢失 `node_modules` 与构建缓存），而是直接在冻结的原 Checkout 上复用已装依赖、按受信 `validation_policy_revision/hash` 执行，不读取 worker 分支中未经确认的验证策略，不默认注入 secrets。验证结束后复核 `tree_sha` 与 `git status --porcelain` 未发生变化，才记录 commit/tree/policy provenance、位置、命令摘要、退出状态和工件引用并签发 `verified`；验证期间若改写源码或输入变化，一律写 `failed`/`stale` 并还原。不受信仓库的防逃逸由 `bwrap`/容器隔离门控负责（[ADR-0013](../adr/0013-verified-evidence-and-acceptance.md)、[ADR-0017](../adr/0017-repository-execution-trust.md)）。
 - `attempt.head_sha` 刷新时机：worker `task_report`、Run 退出、`checkout.handoff` / `sync`、PR head 变更（`github.sync`）、`validate` 起止时都读取并更新；只有 validate 开始时固定的 commit/tree 与结束时一致，且 policy hash 未变，Evidence 才有效。
 - 结果以合成消息回报协调者。Host 失联或外部 receipt 未确认时只回报 `unknown/stale`，不得回报 verified。
 

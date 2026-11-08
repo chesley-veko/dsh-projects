@@ -8,7 +8,7 @@
 | 区域 | 内容 | 宿主承载（见 [ADR-0003](../adr/0003-host-extension-points.md)） |
 |---|---|---|
 | 左栏 | DSH 原生侧栏 + 项目入口；项目行显示图标、名称、相对时间、未读点 | 首版：`sidebar.panellist` 图标 → Projects 首页面板；协调者会话行显示项目图标与徽标。上游合入 `sidebar.regions` + `origin: 'project-worker'` 过滤后，切换为左栏「项目」分组且隐藏本地 worker 会话 |
-| 中栏 | 项目的协调者会话（DSH 原生对话）；头部切换「对话 / 概览」（及按需激活的外部「运行视图」） | 普通会话，`openSession` 打开（建项目时写入初始引导事件脱离 `blank` 态）；概览页（`project-overview`）与外部运行视图（`project-run`）注册在 `conversation.view` 插槽（配合 `conversation.composer` 接管底部输入区），**不走 `main` 面板**以免触发宿主收起右栏 |
+| 中栏 | 项目的协调者会话（DSH 原生对话）；头部切换「对话 / 概览」（及按需激活的外部「运行视图」） | 普通会话，`openSession` 打开（建项目时写入初始引导事件脱离 `blank` 态）；概览页（`project-overview`）与外部运行视图（`project-run`）注册在 `conversation.view` 插槽（经统一上游补丁的 `when(session)` 仅对协调者会话可见，并配合 `activeViewId` 与 `conversation.composer` 按当前视图切换底部输入区），**不走 `main` 面板**以免触发宿主收起右栏 |
 | 右栏 | Project 面板：`List | Board | Library` | `sidebarRightTabs` + 客户端 root 级 `ProjectUiStore`（在协调者与同项目本地 DSH worker 会话间切换时共享同一项目上下文） |
 | 输入区上方 | `Questions · N`、`Agents · N`、`Listening · N` 胶囊与 Question Tray | `conversation.input.overlay` / `composer.dock` |
 

@@ -12,7 +12,7 @@
 - Host 断连期间不得将远端 Run 标成 verified、完成或已投递。最后一次确认状态记为 stale/host_unreachable；未确认的权限和 effect 进入 `unknown`，不自动重放。
 - 所有远端 Run 使用可撤销的 Run capability 和 host heartbeat/lease。lease 失效后远端 adapter 停止接受新 MCP 命令并按 provider 能力安全停止进程；无法确认进程已停止时保留资源占用并阻止 Attempt 重启。
 - Host 恢复后先查询/恢复 Run 和 effect 状态，再重新开放写命令。UI 在此之前显示「等待本机 Project Host 对账」，不静默切换到另一执行位置。
-- MCP 回路按执行者 `initialize` 的 `mcpCapabilities` 分流：本机执行者 `http: true` 时直连本机 HTTP `/projects/mcp`，仅 stdio 时挂 `projects-mcp-stdio.mjs`。远端 SSH 执行者默认不走 `ssh -R`（受管网关会拒绝远程端口转发），改走 `LocationProvider` 第二条 `ssh exec` stdio 通道，以 `projects-mcp-bridge.mjs` 桥接回本机 `executor-host`。
+- MCP 回路按执行者 `initialize` 的 `mcpCapabilities` 分流：本机执行者 `http: true` 时直连本机 HTTP `/projects/mcp`，仅 stdio 时挂 `projects-mcp-stdio.mjs`（必填 `args` 与 `env: []`）。所有远端执行者（SSH、Docker、云沙箱）统一淘汰 `ssh -R`，一律走 `LocationProvider` 第二条 `exec` stdio 通道，以 `projects-mcp-bridge.mjs` 桥接回本机 `src/executors`。
 - MCP 挂载是 lease 与回收的前提，但不能用 `session/new` 成功来证明：ACP SDK 会丢弃 schema 不合法的 `mcpServers` 条目（stdio 缺 `env` 即被丢弃），随后服务端按空列表继续。必须以工具表可见或首轮挂载探针通过为准；未通过时 Run 不得进入 `verified`。
 - 若后续产品要求电脑休眠/退出后仍可完整协调，必须另立 ADR 决定常驻服务或用户自托管 Host；不把当前 stdio 隧道描述为独立云端控制面。
 

@@ -12,7 +12,7 @@
 - `install`、`start`、Docker build 和依赖准备使用与 agent 分离的进程环境。默认使用隔离 HOME、空 SSH agent、最小 PATH/locale，且不注入 runtime secrets；build secrets 只在用户单独批准后对指定 build step 短时可见。隔离 HOME 只替换 `$HOME` 指针，不构成文件系统隔离：在未安装 `bwrap`（需具备独立 `--tmpfs /tmp`、`--unshare-net` 与受限只读挂载）或容器隔离的宿主机上，`install` / `start` / `validate` 默认阻断，或要求用户显式确认 `full-access` 风险模式后才放行。
 - agent 默认在 DSH OS sandbox 的 workspace-write 模式运行，限定到本 Attempt Checkout；默认不传递 `SSH_AUTH_SOCK`、其他仓库路径、宿主 DSH 凭据或全局写权限。`workspace-write` 在 Landlock 下只限制写、不限制读与出站网络，`/tmp` 还是宿主真实目录。需要使用本机 CLI 登录时，用户必须显式选择 `credential=cli-login` 并看到该 provider 会访问本机对应账户；在未安装 `bwrap` 或容器隔离的宿主机上，`credential=cli-login` 不得宣称隔离，默认阻断或要求显式确认 `full-access` 风险模式。不可证明隔离的宿主/执行者组合不得宣称安全。
 - API Key 只注入实际需要它的 agent 进程，不注入仓库 install/start；可写网络策略随环境配置 hash 版本化，默认拒绝未声明的出站访问。凭据泄漏疑虑触发撤销与 Run 停止，不继续自动重试。
-- validator 在无运行时 secrets、独立隔离、只读代码快照上执行；如果验证确需外部服务凭据，必须以独立的最小测试凭据和网络策略授权，不能复用生产凭据。只读快照只保护快照本身不被改写，不阻止执行体按绝对路径读取宿主其他路径，因此仍须外部隔离（`bwrap` / 容器）或按 `full-access` 风险模式显式放行。
+- validator 在无运行时 secrets、已停止 Run 并冻结写 capability 的原 Checkout 上原位执行（复用已装好的依赖，结束后校验 `tree_sha` 与 `git status --porcelain` 未变以防篡改；不再额外拷贝只读代码快照，因 S7 实测只读快照在 Landlock 下并不阻止按绝对路径读取宿主其他路径、连外网或访问 `/tmp` 套接字）；如果验证确需外部服务凭据，必须以独立的最小测试凭据和网络策略授权，不能复用生产凭据。不受信仓库的防逃逸统一依赖外部隔离（`bwrap` / 容器）或按 `full-access` 风险模式显式放行。
 
 ## S7 实测（2026-11-08，Linux Landlock）
 

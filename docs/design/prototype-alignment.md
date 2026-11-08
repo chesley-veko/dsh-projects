@@ -23,7 +23,7 @@
 | Library 的 ratified / proposed / disputed 标签 | `context_item.status`；转正规则以 verified Evidence 为准 |
 | 依赖、成环禁用、前置完成自动解锁 | `task_dep` + 不变量「依赖图无环、被依赖未 accepted 不得启动」 |
 | 设置变更写入项目活动 | `project_event` |
-| Pause / Archive / Delete | [runtime.md §8](../architecture/runtime.md) |
+| Pause / Archive / Delete | [runtime.md §9](../architecture/runtime.md) |
 | 15 秒行摘要、Update from YOU-x 折叠 | Driver 写 `run.summary`；合成消息回报 |
 
 ## 3. 原型展示的是目标形态，首版实现不同
@@ -34,6 +34,8 @@
 | 默认模型示例「Gemini 4 Argon」 | DSH 可用的模型列表 | 示例数据，不代表支持范围 |
 
 ## 4. 原型待补（排入对应里程碑）
+
+现行状态以架构 v4 为准：PR merge 不自动接受 Task；Question Tray 的 ACP 权限回答必须回应原始 permission RPC；任务详情中的 Evidence 显示 commit/tree、验证策略版本及 `verified / stale / unknown`。
 
 | 项 | 说明 | 里程碑 |
 |---|---|---|

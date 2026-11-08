@@ -35,7 +35,7 @@
 - worker 提问时在协调者输入框上方浮出托盘：「Question from YOU-4」、问题、预设选项、自定义回答、「打开 YOU-4 会话」。
 - 可收起为胶囊；多条问题按创建时间排队，显示「1 of N」。
 - 回答直达该 worker，不经协调者转述。
-- 外部执行者的权限请求同样进托盘，显示为「YOU-4 · Claude Code 请求执行 `rm -rf dist`」，选项沿用执行者给出的（允许一次 / 总是允许 / 拒绝）。
+- 外部执行者的权限请求同样进托盘，显示为「YOU-4 · Claude Code 请求执行 `rm -rf dist`」，选项沿用执行者给出的（允许一次 / 总是允许 / 拒绝）；批准后回应原始 permission RPC，未收到协议回执前不能显示已批准。
 - 只有阻塞型提问（gate）计入「Waiting on you」；非阻塞请求在托盘但不阻塞；可选建议（wish）只进摘要。
 
 ## 5. 右栏 Project 面板
@@ -43,9 +43,9 @@
 **头部**：Project 操作（pin / expand / close，拖拽边缘调宽，双击复位）、项目身份、面板内搜索与筛选。
 
 **List**
-- 分组顺序：Waiting on you → For Review → In Progress → Queued → Done → Canceled（Done / Canceled 默认折叠）。分组由事实推导，见 [domain-model.md §3](../architecture/domain-model.md)。
+- 分组顺序：Waiting on you → For Review → In Progress → Queued → Done → Canceled（Done / Canceled 默认折叠）。Host 失联、权限回调未知或外部 effect 未对账的任务归入 Waiting on you 并显示原因。分组由事实推导，见 [domain-model.md §3](../architecture/domain-model.md)。
 - 任务行：状态图标、编号、标题、一行摘要、PR 胶囊（多于 1 个折叠为 `N PRs`）、负责人头像、依赖锁。
-- 点状态图标打开状态菜单：Waiting on you 与 For Review 标「自动」并置灰；其余选项映射为命令（启动 / 排队 / 接受 / 取消）。
+- 点状态图标打开状态菜单：Waiting on you 与 For Review 标「自动」并置灰；其余选项映射为命令（启动 / 排队 / 接受 / 取消）。Done 是人执行 `task.accept` 后的结果，不是拖拽目标；PR merged 仅显示标记，不自动 Done。accept 前展示已验证/未经验证、当前 head 和后继项；有 live Run、写 effect 或 gate 时不能接受。
 - 组内拖拽排序；拖到其他组等同于在状态菜单中选择该组，规则相同。
 - 单击 Peek，双击详情；`↑/↓` 切换，`Enter` 详情，`Space` Peek，`S` 状态菜单，`Esc` 逐层关闭。
 
@@ -61,7 +61,7 @@
 **任务详情**
 - 标题 / 描述可编辑；负责人；依赖（可添加 / 管理，成环候选禁用）；基线分支（从项目真实 refs 选择或新建）。
 - 执行信息：仓库、分支、worktree、环境、模型；日志与过程；`Files Changed`（uncommitted / last turn / staged / unstaged / branch）。
-- 证据：验证命令结果、CI 状态、工件。
+- 证据：验证命令结果、CI 状态、工件；显示被测 commit/tree、验证策略版本、运行位置与 `verified / stale / unknown`，不能只显示“通过”。
 - PR 胶囊进入 PR 详情。
 - 删除：从未执行过的任务可删除；执行过的任务只能取消（保留记录、分支与 PR）。
 
@@ -75,16 +75,19 @@ YOU-4 Staging 灰度验证
  模型     [claude-sonnet-4.5 ▾]  思考 [中 ▾]
  位置     [本地 | 云端 ▾ my-vps]   ● 健康 0.6s
  权限     [可写工作区 ▾]  审批 [需要时问我 ▾]
+  信任     [隔离执行 ▾]  环境配置 hash 已确认
+  验证     [策略 v3 · pnpm test]  输入将固定为 commit/tree
  计费     本机 Claude 登录
  仓库     youshi-api @ main → agent/you-4-staging-verify
  检出     ~/.dsh/projects/worktrees/youshi/att-91   refs 10 分钟前
+  控制面   本机 Project Host 在线 · 失联时远端写入暂停并等待对账
  [ ] 同时让其他执行者也做一份（best-of-N）
                                    [取消]  [启动]
 ```
 
 - 三个选择器联动：换执行者后模型列表刷新为该执行者的目录；执行者不支持选模型时模型选择器置灰并显示「由 Codex 配置决定」之类原因。
 - 云端 + 执行者需要 API Key 而未配置时，「启动」置灰，显示「在设置 → Agents 配置 Anthropic API Key」入口。
-- 阻断项（依赖未完成、位置不可达、执行者未安装 / 未登录、refs 过期）逐条列出，每条带修复动作（刷新 refs、重新检测、去登录）。
+- 阻断项（依赖未完成、位置不可达、执行者未安装 / 未登录、refs 过期、环境配置 hash 未确认、Host 不在线、无法证明隔离）逐条列出，每条带修复动作；不以切换到另一位置或自动允许权限绕过阻断。
 - 勾选 best-of-N 后展开 1–3 行附加候选，每行一组「执行者 · 模型」，共用位置类型。
 - 被依赖阻塞的任务不能启动，前置完成后自动解锁。
 - 分支前缀：`agent/…`；best-of-N 候选追加 `-<n>`。
@@ -101,7 +104,7 @@ YOU-4 Staging 灰度验证
 - **外部执行者**：在协调者会话的 `conversation.view`（`id: 'project-run'`）中打开运行视图（不切顶层 `main` 面板，保证右栏常驻），渲染统一事件流：
   - 头部：执行者 logo、模型、位置、计费来源、状态、用量；动作 `插话`、`停止`、`移到云端 / 拉回本地`、`交给其他执行者`。
   - 主体：消息、思考（默认折叠）、工具调用行（按 kind 显示读 / 改 / 执行 / 抓取图标，改动行可展开 diff）、计划清单。
-  - 权限请求以内联卡片出现，同时进入托盘；任一处批准即生效。
+  - 权限请求以内联卡片出现，同时进入托盘；任一处回答都会回应原始 permission RPC，收到协议回执后才生效；普通插话仍走独立的 queue/steer 路径。
   - 底部输入框：通过 `conversation.composer` chain 插槽原位接管底部输入区，发给该运行（排队或插话，避免与协调者输入框叠放）。
 - **黑盒执行位置**（厂商云，延后）：只显示状态、diff、PR，头部标注「过程不可见」。
 

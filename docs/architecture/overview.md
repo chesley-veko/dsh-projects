@@ -1,6 +1,6 @@
 # 架构总览
 
-> 状态：现行（v3，2026-11-08）。产品意图见 [../product/intent.md](../product/intent.md)。取代 `archive/docs/handoff-2026-11-04.md` 与 `archive/docs/dsh-project-layer-2026-11-04.html` 中的落地方案。
+> 状态：现行（v4，2026-11-08，采纳实施前架构修订 ADR-0013–0018）。产品意图见 [../product/intent.md](../product/intent.md)。取代 `archive/docs/handoff-2026-11-04.md` 与 `archive/docs/dsh-project-layer-2026-11-04.html` 中的落地方案。
 > 依据：`deepseek-harness@fcc0ad46`、`dsh-superagent-prototype@8c32a9d`、`loopx@8a4d4f9` 源码核查（见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)），以及 [research/](../research/) 下的开源调研。
 
 ## 1. 要解决的问题
@@ -82,21 +82,21 @@ flowchart TB
 
 | 路径 | 来源 | 准入 | 产物 |
 |---|---|---|---|
-| 交互 | 人在协调者会话里说话，协调者调用工具 | 人的消息本身就是显式授权，工具调用时直接签发 | `mandate{origin: chat, granted_by: <user>, scope}` |
-| 外部 | GitHub 评论、PR、飞书消息 | 复用 dsh-superagent 的确定性 gate + 模型 assessment | `mandate{origin: source, …}` |
+| 交互 | 人在协调者会话里说话，协调者调用工具 | 消息只产生待授权 Mandate；启动摘要确认、策略确认和高风险命令仍需人的明确操作 | `mandate{origin: chat, granted_by: <user>, scope}` |
+| 外部 | GitHub 评论、PR、飞书消息 | 复用 dsh-superagent 的确定性 gate + 模型 assessment；不能扩大已签发 Run 的范围 | `mandate{origin: source, …}` |
 
 两条路径产出同一种 Mandate 记录，审计统一。这取代了旧方案「把人的消息伪装成 Trigger、修改 superagent 的 Eval 幂等键」的做法（见 [ADR-0001](../adr/0001-own-engine.md)）。
 
 ## 5. 一次任务的完整生命周期
 
 1. 人对协调者说需求 → 协调者首句确认 → 调 `task_create` 拆出 Task（`intent=ready`），并为每个 Task 推荐 RunSpec（执行者 · 模型 · 位置）。
-2. 人在启动摘要确认或修改 → Engine 排队：依赖满足、槽位可用 → 入队 `checkout.prepare`。
-3. 位置提供者检出分支、跑 install → `executor-host` 起执行者（本地 DSH 走原生会话，其余走 ACP）并投递任务原文、检出说明、`INDEX.md`、相关 runbook，挂上 projects-mcp。
-4. worker 运行；统一事件流写入 `activity` 与 `run_event`；右栏实时推导状态。
-5. worker 需要人（`ask_human` 或执行者的权限请求）→ Question → 协调者会话托盘浮出 → 人一键回答，直达该运行。
-6. worker 声明完成 → validator 跑项目的验证命令 → 写 Evidence（verified / failed）→ 以合成消息回报协调者。
-7. PR 观察者同步 PR / CI / review；CI 失败、review 意见自动回流给拥有该分支的 worker。
-8. 人接受（或 PR 合并且已验证）→ Task 完成；必须附后继 Task 或 `no_followup` 理由。
+2. 人在启动摘要确认或修改 → Engine 生成不可变 Mandate、Run capability 和 RunSpec；依赖满足、槽位可用后入队 `checkout.prepare`。
+3. 位置提供者检出分支、先按受信策略准备环境 → `executor-host` 起执行者（本地 DSH 走原生会话，其余走 ACP）并投递任务原文、检出说明、`INDEX.md`、相关 runbook，挂上受 Run capability 限制的 projects-mcp。
+4. worker 运行；统一事件流写入 `activity` 与 `run_event`；右栏实时推导状态。Host 失联时远端 Run 进入 stale，不产生新的已确认事实。
+5. worker 需要人（`ask_human` 或执行者的权限请求）→ Question → 协调者会话托盘浮出。普通插话走 `steer`；ACP 权限回答直接回应原 permission RPC。
+6. worker 声明完成只产生候选结果。Engine 等待 Run 退出、冻结 Checkout 并固定 WIP commit/tree；validator 在只读快照上按受信 `policy_revision` 执行，只有 provenance 匹配时才能写 Evidence（verified / failed）。
+7. PR 观察者同步 PR / CI / review；CI 失败、review 意见自动回流给拥有该分支的 worker。外部 effect 通过 operation id 和 receipt 对账，未知结果不自动重放。
+8. PR merge 只记录外部事实。人调用 `task_accept`，确认没有 live Run、未完成写入 effect 和 open gate，并附后继 Task 或 `no_followup` 理由后，Task 才完成。
 9. 回收：未提交改动存为 preserved ref，按策略删除 worktree，保留分支。
 
 ## 6. 文档地图

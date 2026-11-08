@@ -26,5 +26,11 @@
 | [0008](0008-executor-transports.md) | 本地 DSH 走原生会话，其余一律 ACP | Accepted |
 | [0009](0009-location-follows-code.md) | 位置 = 代码与 agent 进程所在处 | Accepted |
 | [0010](0010-branch-handoff.md) | Attempt / Checkout / Run 三层，分支是交接介质 | Accepted |
-| [0011](0011-credentials.md) | 本地复用 CLI 登录，云端只用 API Key | Accepted |
+| [0011](0011-credentials.md) | 本地登录显式授权，云端只用 API Key | Superseded by 0017 |
 | [0012](0012-projects-mcp.md) | 给所有执行者同一套工具：projects-mcp | Accepted |
+| [0013](0013-verified-evidence-and-acceptance.md) | 验证证据绑定受信策略与固定代码版本 | Accepted |
+| [0014](0014-run-capability-and-acp-permission.md) | Run capability 与 ACP 权限回调 | Accepted |
+| [0015](0015-external-effect-reconciliation.md) | 外部 effect 使用回执对账，不盲目重放 | Accepted |
+| [0016](0016-local-project-host-availability.md) | 本机 Project Host 是远端执行的控制面 | Accepted |
+| [0017](0017-repository-execution-trust.md) | 仓库脚本与 agent 在隔离的信任边界内执行 | Accepted |
+| [0018](0018-worker-visibility-seam.md) | Worker 可见性必须依赖真实列表过滤接缝 | Accepted |

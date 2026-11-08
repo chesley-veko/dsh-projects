@@ -1,13 +1,14 @@
 # 执行层：执行者 × 模型 × 位置
 
-> 状态：现行（2026-11-08，第三轮决策）。意图见 [../product/intent.md](../product/intent.md)；证据见 [../research/dsh-capabilities.md](../research/dsh-capabilities.md)、[../research/external-agents-cloud.md](../research/external-agents-cloud.md)。
+> 状态：现行（v4，2026-11-08，采纳 ADR-0013–0018）。意图见 [../product/intent.md](../product/intent.md)；证据见 [../research/dsh-capabilities.md](../research/dsh-capabilities.md)、[../research/external-agents-cloud.md](../research/external-agents-cloud.md)。
 
 ## 1. 结论
 
 - 每次运行由一份**不可变的运行规格** `RunSpec{executor, model, effort, permission, location}` 描述。任务只存偏好，运行存事实。
 - 执行者只有**两种传输**：`dsh-native`（本地 DSH 会话，保真度最高）与 `acp`（其余一切，包括远端的 DSH）。
-- 位置的定义是「**代码和 agent 进程所在的地方**」。远端执行 = 在远端检出代码并在远端起 agent，经 stdio 桥回本机。
-- Projects 给执行者的工具（提问、回报、写上下文）统一做成一个 **MCP 服务**；DSH 原生会话直接注册为工具，外部执行者经 ACP `session/new.mcpServers` 拿到同一套。
+- 位置的定义是「**代码和 agent 进程所在的地方**」。远端执行 = 在远端检出代码并在远端起 agent，经 stdio 桥回本机 Project Host；Host lease 失效时远端 Run 进入 `stale`，不再接受写命令。
+- Projects 给执行者的工具（提问、回报、写上下文）统一做成一个 **MCP 服务**；DSH 原生会话直接注册为工具，外部执行者经 ACP `session/new.mcpServers` 拿到同一套。所有调用经过 Engine 的 Run capability 校验，不以 bearer token 中的 Task id 代替授权。
+- 仓库环境文件是可执行输入，不是天然可信配置。首次执行或 hash 改变时需要人确认；不受信仓库默认使用隔离 HOME、无 SSH agent、无 runtime secrets 的 sandbox。
 - 不使用 DSH 现有的 `subagent-acp / subagent-claude-code / subagent-codex` 来跑项目任务：它们是一次性的，丢弃过程事件，自动应答权限，不能按次选模型（`subagent-acp/src/run.ts:420-452`）。它们仍可作为 worker 内部的子代理工具使用。
 
 ```mermaid
@@ -32,6 +33,8 @@ type RunSpec = {
   approval: 'ask' | 'auto-safe' | 'never-ask'            // 权限请求是否转人审批
   location: LocationId          // 'local' | 'ssh:<host>' | 'docker:<name>' | 'sandbox:<provider>/<env>'
   credential: CredentialRef     // 'cli-login' | 'credential:<id>'（DSH credentials 中的 API Key）
+  trust: 'isolated' | 'trusted-local' // 是否允许本机 CLI 登录态等额外能力
+  validationPolicyRevision?: number   // 采用的受信验证策略版本
 }
 ```
 
@@ -51,7 +54,9 @@ interface ExecutorDriver {
   capabilities(loc): Promise<Capabilities>                // resume、fork、选模型、权限请求、用量、plan、diff
   catalog(loc): Promise<ModelCatalog>                     // 动态发现模型与 effort
   start(spec: RunSpec, ws: CheckoutHandle, brief: Brief): Promise<RunHandle>
-  prompt(run, message, mode: 'queue' | 'steer'): Promise<void>
+  prompt(run, message, operationId, mode: 'queue' | 'steer'): Promise<DispatchReceipt>
+  resolvePermission(run, requestId, decision, optionId): Promise<PermissionReceipt> // 回应原始协议请求
+  reconcile(operationId): Promise<DispatchReceipt | 'not-found' | 'unknown'>
   resume(run): Promise<RunHandle>                         // 能力不支持时抛 Unsupported
   cancel(run): Promise<void>
   nativeSessionRef(run): { kind: string; id: string } | null   // 用于续接与交接
@@ -65,16 +70,17 @@ interface ExecutorDriver {
 | `message` / `thought` | 文本与思考流式增量（chunk） | 内存缓冲 + SSE 实时广播 + 追加写 `<dataDir>/runs/<run_id>.jsonl`；仅在 `turn_end` 时将完整消息摘要写入 SQLite `run_event` | 运行视图对话流 |
 | `tool_call` / `tool_call_update` | 工具调用，含 kind（read / edit / execute / fetch…）与 diff | 起止状态写入 SQLite `run_event`；流式输出写 `.jsonl` | 过程行、Files Changed |
 | `plan` | 执行者的计划项 | SQLite `run_event` | 运行视图顶部 |
-| `permission_request` | 需要批准的动作 | SQLite `run_event` + `question` 表 | 托盘（Question kind=gate, scope=action） |
+| `permission_request` | 需要批准的动作 | SQLite `run_event` + `question` 表（含 transport、request id、Run epoch；挂起 RPC resolver 留在 provider channel） | 托盘（Question kind=gate, scope=action）；回答直接返回原 RPC |
 | `usage` | token / 成本（执行者提供时） | SQLite `run_event` + `run.usage_json` | 运行头、项目预算 |
 | `state` | running / idle / requires_action / exited(reason) | SQLite `run_event` + `run.activity` | 推导显示状态 |
 
-**`prompt(run, message, mode)` 的传输层映射**：
-- `dsh-native`：直接映射为 DSH 会话的 `inbox` 投递（`mode='queue'` 走 `followup`，`mode='steer'` 走 `steer`）。
-- `acp`：ACP v1 的 `session/prompt` 是阻塞到本轮结束的同步 RPC，没有原生运行中 `steer`。`executor-host` 在 ACP 驱动内统一合成：
-  - `mode='queue'`：在 `executor-host` 内存入队，等当前在途 `session/prompt` 返回后立即自动发送下一条 `session/prompt`；
-  - 外部执行者的默认模式为 `queue`；协调者 `run_send` 未指定时也按 `queue` 处理。
-  - `mode='steer'`（仅人显式「插话」或回答阻断型提问时）：先向该会话发送 `session/cancel` 中断当前回合，等待在途 `session/prompt` 以 `stopReason='cancelled'` 返回后，立即发送携带新指令的 `session/prompt`。注意：`cancel` 会打断进行中的工具调用（可能留下半写文件），运行视图需在插话前提示。
+**`prompt(run, message, operationId, mode)` 的传输层映射**：
+- `dsh-native`：先由 Engine 校验 Run capability，再映射为 DSH 会话的 `inbox` 投递（`mode='queue'` 走 `followup`，`mode='steer'` 走 `steer`）。回执写入对应 effect，不把模型响应当作投递回执。
+- `acp`：ACP v1 的 `session/prompt` 是阻塞到本轮结束的同步 RPC，没有原生运行中 `steer`。`executor-host` 把每条消息先持久化为带 `operationId` 的 delivery effect，再在 `run:<id>` lane 内串行发送：
+  - `mode='queue'`：从持久队列取出，等当前在途 `session/prompt` 返回后发送下一条；队列不能只存在内存。
+  - `mode='steer'`（仅人显式「插话」时）：先向该会话发送 `session/cancel`，等待在途 prompt 以 `stopReason='cancelled'` 返回后再发送新 prompt。cancel 可能打断工具调用并留下半写文件，因此必须先产生风险 Question 或执行隔离回滚。
+- ACP `session/request_permission` 不走 `prompt`、`run.deliver` 或 `steer`。Agent Host 保存原始 request id 与 resolver；Question 回答调用 `resolvePermission` 直接回应该 RPC，成功后才写 Question answered 和审计。
+- 远端操作在本机 ack 前崩溃时先调用 `reconcile(operationId)`。不能查询或去重的 provider 返回 `unknown`，冻结同一 Run/Attempt 的冲突 effect 并转人工对账，不自动重发。
 
 ### 3.2 驱动清单
 
@@ -91,8 +97,10 @@ interface ExecutorDriver {
 **能力降级**（显式，不静默）：
 - 不支持续接：跟进 = 新会话 + 交接简报（任务原文、上次结论、`git log` 摘要），UI 标注「新会话」。
 - 不支持选模型：模型选择器置灰并说明原因。
-- 不发权限请求：只允许在 `workspace-write` 且位置是隔离 worktree / 容器时运行。
+- 不发权限请求：只允许在 `workspace-write` 且位置是隔离 worktree / 容器时运行；若无法证明隔离则阻断，不自动切到 `never-ask`。
+- 不支持回应权限 RPC：进入 `permission_unsupported` / `waiting_on_you`，不得用 steer 伪造批准。
 - 不报用量：运行头显示「用量未知」，不计入预算估算。
+- 不支持 `list/resume/reconcile`：崩溃后的 launch/delivery 进入 `unknown`，禁止自动重放，要求人工对账。
 
 ### 3.3 可选的原生增强（后续）
 
@@ -156,12 +164,13 @@ interface LocationProvider {
 }
 ```
 
-- `install` 必须幂等；结果按 `(repo, lockfile hash)` 做快照（沙箱快照 / Docker 镜像层 / SSH 主机上的缓存目录）。
-- `start` 每次起运行时执行。
-- `validate` 是该仓库的验证命令（第二轮 ADR-0005），在**运行所在位置**执行。
-- `agents` 声明需要在该环境预装的执行者 CLI；准备阶段检查并安装。
-- secrets 只写名字，值来自 DSH `credentials`，运行时与构建时分开注入。
-- 本地位置忽略 `image / network`，只用 `install / start / validate`。
+- 环境配置先规范化并计算 hash；首次使用或 `install/start/Dockerfile/network/secrets/agents` 发生变化时，必须由人确认实际命令、仓库远端、网络范围和凭据需求。确认记录绑定该 hash，worker 不能替用户确认。
+- `install` 必须幂等；结果按 `(repo, lockfile hash, approved config hash)` 做快照。它与 `start`、Docker build 在独立的准备执行环境运行，不继承 agent 的 HOME、SSH agent 或 DSH 凭据。
+- `start` 每次起运行时执行，但默认不注入 runtime secrets；build secret 只在用户对对应 build step 单独授权后短时提供。
+- `validate` 是该仓库的候选验证命令，在**运行所在位置**执行；生效版本来自人确认的 `validation_policy_revision`，不以当前 worker 分支中的修改自动覆盖。
+- `agents` 声明需要在该环境预装的执行者 CLI；准备阶段检查并安装。依赖安装脚本是任意代码，须遵循同一仓库信任确认和 sandbox 规则。
+- secrets 只写名字，值来自 DSH `credentials`；构建、运行、agent 进程彼此分开授权，不共享父进程环境。
+- 本地位置忽略 `image / network` 配置，但仍受 OS sandbox、仓库信任确认和 capability 约束。不能证明隔离的本地 executor/宿主组合不得宣称安全，启动时应阻断或要求明确的 full-access 风险确认。
 
 ## 5. 检出与交接（本地 ⇄ 云端）
 
@@ -191,7 +200,7 @@ interface LocationProvider {
 
 ## 7. Projects 工具面（projects-mcp）
 
-所有执行者看到的是同一组工具：
+所有执行者使用同一套 MCP 命令语义；具体可见工具和读写能力由 Run role 与 capability 过滤，Engine 对每次调用再次授权：
 
 | 工具 | 作用 |
 |---|---|
@@ -205,26 +214,28 @@ interface LocationProvider {
 - **单写者约束**：`projects.sqlite` 仅由 DSH 主进程内的 `Engine` 独占写锁。任何外部 stdio 子进程**不得**直接打开 `projects.sqlite`。
 - **DSH 原生会话**：直接用 `agent.ctx.tools.register` 注册到 worker preset，进程内直调 `Engine`。
 - **本地 ACP 执行者**：`session/new` 时以 `mcpServers` 传入无状态的薄代理脚本 `projects-mcp-stdio.mjs`，它把 MCP JSON-RPC 请求通过本机 Loopback HTTP（`http://127.0.0.1:<dshPort>/projects/mcp` + `Bearer <run_token>`）转发回 DSH 主进程的 `Engine`。
-- **远端 ACP 执行者**：不假设远端容器或云沙箱能出站直连 NAT 后的用户本机。SSH 位置走 `ssh -R` 远端回路端口转发；Docker 与 E2B / Daytona 沙箱由 `LocationProvider` 注入薄垫片 `projects-mcp-bridge.mjs`（监听容器内本地 Unix Socket，经第二条 `exec` stdio 通道桥接回宿主机 `executor-host`），携带每次运行一次性的 `run_token`（只允许访问本运行所属 Task）。
-- 执行者原生的权限请求（ACP `session/request_permission`）由 Agent Host 转成 `Question{kind: gate, scope: action}`；`approval=auto-safe` 时只读类自动允许，其余进托盘。
+- **远端 ACP 执行者**：不假设远端容器或云沙箱能出站直连 NAT 后的用户本机。SSH 位置走 `ssh -R` 远端回路端口转发；Docker 与 E2B / Daytona 沙箱由 `LocationProvider` 注入薄垫片 `projects-mcp-bridge.mjs`（监听容器内本地 Unix Socket，经第二条 `exec` stdio 通道桥接回宿主机 `executor-host`），携带每次运行的不可猜 capability token。token 只用于定位 Run；Engine 逐次校验 project/task/attempt/repo/path/role/write/epoch/expiry/host lease。
+- 所有工具命令执行 capability 校验：`reviewer`、`read-only`、Mandate `write=false`、过期/撤销/暂停/handoff/Host 失联的 Run 不得调用写类工具；跨 repo、跨 Attempt 和越界路径 fail-closed。
+- 执行者原生的权限请求（ACP `session/request_permission`）由 Agent Host 转成带原始 request id 的 `Question{kind: gate, scope: action}`；用户回答直接调用 ACP resolver 回应原 RPC，再写 Question 和审计。`approval=auto-safe` 只允许明确的只读安全动作，其余进托盘，不能用 `steer` 代替权限响应。
 
 ## 8. 凭据与计费来源
 
 | 位置 | 来源 | 做法 |
 |---|---|---|
-| 本地 | 用户已登录的 CLI（Claude、Codex、Cursor…） | 只探测登录状态（如 `claude auth status`），不读不复制 token；未登录时引导用户在终端登录 |
-| 本地 | API Key | 存 DSH `credentials`，启动时作为该进程的环境变量注入 |
+| 本地 | 用户已登录的 CLI（Claude、Codex、Cursor…） | 默认隔离 HOME 与 SSH agent。用户显式选择 `credential=cli-login` 后，启动摘要标明会使用哪个本机账户；仅在 sandbox 可证明隔离的情况下开放，不读取/复制 token |
+| 本地 | API Key | 存 DSH `credentials`，只注入获批的目标 agent 进程；不注入 install/start 和 validator，除非该用途有独立授权 |
 | 远端 | **只能** API Key | 按次注入到该执行者进程（不写入环境的全局配置）；Claude 用 `--bare`；不同步 `~/.claude`、`~/.codex/auth.json` |
-| 全部 | — | 沿用宿主 `dsh-subprocess-local` 的**黑名单凭据清洗（denylist scrubbing）**：剥离父进程中的 `DSH_*` 与敏感凭据变量，保留 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*` 与代理变量（确保本机 CLI 登录态与 Keychain 正常可用），再按次叠加注入项目声明的环境变量；每个 DSH 子实例独立 `DSH_HOME` |
+| 全部 | — | 环境按用途构造，不直接继承父进程：默认隔离 `HOME`、不传 `SSH_AUTH_SOCK`、剥离 `DSH_*` 与敏感变量；仅显式 `credential=cli-login` 可申请本机 provider 登录态，需 sandbox 能力验证和用户确认。每个 DSH 子实例独立 `DSH_HOME`；项目声明变量按获批范围注入 |
 
 UI 在启动摘要和运行头显示计费来源：「本机 Claude 登录」或「API Key · Anthropic（工作）」。
 
 ## 9. 验证在哪里跑
 
-- 默认在运行所在位置执行 `validate`（优先读仓库 `.dsh/environment.json`，缺省回退至 `project_repo.validate_json` 或项目级默认验证命令）。
-- 验证通过或失败写入 `evidence` 表时，有仓库项目必须同步记录当前 Checkout 的 `git rev-parse HEAD` 到 `evidence.commit_sha` 与 `attempt.head_sha`。
-- 位置已回收或不可达时，以 CI 结果为准。
-- 云端运行的工件（截图、日志）经 `artifact_put`（内部调 `LocationProvider.pullFile`）回传到本机 `context/artifacts/<task>/`。
+- `task_report(done)` 后先停止 worker 当前回合并冻结 Checkout；Engine 固化 WIP commit，读取 `commit_sha`、Git `tree_sha` 和当前验证策略 hash。Run 未退出、Checkout 仍可写、存在未完成写类 effect 或 tree 不稳定时，不启动 validator。
+- validator 在独立只读快照上运行受信 `validation_policy_revision`；仓库 `.dsh/environment.json` 只能作为候选策略，首次使用或 hash 改变须由人确认。默认不注入 runtime secrets，网络和凭据按最小范围单独授权。
+- 验证通过或失败写入 `evidence` 表时，必须记录 commit/tree SHA、策略版本/hash、运行位置、命令摘要和结果引用。只有全部 provenance 与 Attempt 当前值匹配时，`verified` 才有效；验证期间 HEAD/tree/策略发生变化则写 `stale` 或 `failed`。
+- 位置已回收或不可达时，保留 `unknown`/`stale` 状态，不能直接把本地旧结果当作当前证据；可接受的 CI 结果也必须绑定同一 commit/tree 和策略版本。
+- 云端运行的工件（截图、日志）经 `artifact_put`（内部调 `LocationProvider.pullFile`）回传到本机 `context/artifacts/<task>/`，Host 失联时不确认上传成功。
 
 ## 10. 与 DSH 现有件的关系
 

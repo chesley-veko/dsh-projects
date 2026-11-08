@@ -6,16 +6,16 @@
 |---|---|
 | [product/intent.md](product/intent.md) | 产品意图：对标 Cursor Projects、差异化、核心体验、原则、范围外、待拍板决策 |
 | [architecture/overview.md](architecture/overview.md) | 问题、设计原则、分层、两条授权路径、任务生命周期 |
-| [architecture/domain-model.md](architecture/domain-model.md) | 对象与不变量、显示状态推导、UI 操作到命令的映射、Mandate、SQLite Schema |
+| [architecture/domain-model.md](architecture/domain-model.md) | 对象与不变量、显示状态推导、UI 操作到命令的映射、Mandate/Run capability、Evidence provenance、SQLite Schema |
 | [architecture/execution.md](architecture/execution.md) | 执行者 × 模型 × 位置：RunSpec、DSH 原生 / ACP 两种传输、能力降级、位置提供者、环境规格、本地 ⇄ 云端交接、best-of-N、projects-mcp、凭据 |
 | [architecture/runtime.md](architecture/runtime.md) | Engine 与 effect、协调者工具集、worker 与 worktree、Question Tray、Driver、Library 与记忆、环境、生命周期、预算 |
 | [architecture/dsh-integration.md](architecture/dsh-integration.md) | 已核实的 DSH 客户端 / 服务端扩展点、陷阱、从 dsh-superagent 复用什么、M0 前 spike |
-| [architecture/roadmap.md](architecture/roadmap.md) | Spike、M0–M4 与验收、度量 |
+| [architecture/roadmap.md](architecture/roadmap.md) | Spike、M0–M4 与验收、度量；含验证策略信任、capability、receipt/reconcile、Host 失联故障门槛 |
 | [design/interaction-spec.md](design/interaction-spec.md) | 交互规格（原型的文字版） |
 | [design/prototype-alignment.md](design/prototype-alignment.md) | 原型与架构的冲突、已修正项、待补项 |
 | [design/dsh-native-ui.md](design/dsh-native-ui.md) | DSH 原生侧栏、对话头、过程控件、输入区规则 |
 | [design/screenshots.md](design/screenshots.md) | 原型截图集 |
-| [adr/](adr/) | 架构决策记录 |
+| [adr/](adr/) | 架构决策记录（含实施前验证、授权、外部 effect 对账、Host 可用性和仓库执行信任决策） |
 
 ## 调研
 

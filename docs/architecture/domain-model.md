@@ -1,6 +1,6 @@
 # 域模型
 
-> 状态：现行（v3，2026-11-08，加入执行者 × 模型 × 位置，见 [execution.md](execution.md)）。本页定义的名词在代码、工具、UI 文案和其他文档里统一使用，不另起别名。
+> 状态：现行（v4，2026-11-08，加入执行者 × 模型 × 位置及验证/授权/恢复不变量，见 [execution.md](execution.md)）。本页定义的名词在代码、工具、UI 文案和其他文档里统一使用，不另起别名。
 
 ## 1. 对象总览
 
@@ -52,7 +52,10 @@ erDiagram
 **Task**
 - 只存**意图** `intent ∈ {backlog, ready, canceled, accepted}`，显示状态由 §3 推导。
 - 依赖图无环；被依赖未 `accepted` 的 Task 不得启动 Attempt。
-- `accepted` 时必须写 `successor`：后继 Task id，或 `no_followup:<理由>`。
+- `accepted` 只能由人调用 `task.accept` 写入，且必须写 `successor`：后继 Task id，或 `no_followup:<理由>`。
+- 接受前必须没有 live worker Run、未完成的写类 effect 或 open gate；Engine 固定被接受的 `attempt_id / head_sha`。未经验证接受需要二次确认，并记录 `accepted_unverified=1`。
+- accepted Task 不再接收任何 Run 写入；迟到的 MCP 命令、Run 回调和 effect 回执必须被拒绝或只记入隔离审计，不得改写已接受版本。
+- PR merge 是外部事实，不自动写入 `accepted`。只有人完成 `task.accept` 后 Done 才命中，依赖才解锁。
 - 有过 Attempt 的 Task 不能物理删除，只能 `canceled`；从未执行过的可以删除。
 
 **Attempt / Checkout / Run**
@@ -61,8 +64,10 @@ erDiagram
 - 有仓库项目的 Attempt 必须指定 `repo_alias / base_ref / branch`（未显式传 `task.repo_alias` 时默认取项目 `is_primary=1` 的主仓库）；无仓库项目的 `repo_alias / base_ref / branch / head_sha` 允许为空，Checkout 直接使用受管空工作目录 `<dataDir>/workspaces/<project>/<attempt>`。
 - Checkout 可丢弃可重建，**分支是要保住的状态**；已 push 的分支不改名。
 - RunSpec 启动后不可变；DSH 原生会话的运行中切模型记为 `run_event`。
+- 每个 Run 同时持有不可猜的 `run_capability`，绑定 project/task/attempt/run、repo/path scope、role、Mandate policy version、能力集合、签发/过期时间和撤销 epoch。所有 projects-mcp 命令由 Engine 按 capability 再校验；Task token 不是授权本身。
+- `reviewer` 和 `permission=read-only` Run 不能写 Task、ContextItem、Evidence 或 artifact；跨 repo、跨 Attempt、超出路径范围、过期或撤销 capability 的请求 fail-closed。
 - Run 结束不等于 Attempt 结束：可以换 profile、换执行者、换模型、换位置继续同一 Attempt（交接流程见 execution.md §5）。
-- 远端位置的 Run 只能使用 API Key 凭据；`credential=cli-login` 只允许 `location=local`。
+- 远端位置的 Run 只能使用 API Key 凭据；`credential=cli-login` 只允许 `location=local`。Host lease 失效后，远端 Run 进入 `stale`，暂停写入并等待重新对账。
 
 **Question**
 - 带 `kind ∈ {gate, request, wish}` 与 `scope ∈ {action, attempt, task, project}`。
@@ -71,7 +76,8 @@ erDiagram
 
 **Evidence**
 - `status ∈ {claimed, verified, failed}`；worker 只能写 `claimed`，只有 validator / CI 观察者能写 `verified` 或 `failed`。
-- 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`，且仅当 `evidence.commit_sha === attempt.head_sha` 时视为当前有效证据；worker 产生新提交推进 `attempt.head_sha` 后，旧 `verified` Evidence 自动失效（需重新验证）。`head_sha` 在 `task_report`、Run 退出、交接 / sync、PR head 变更与 `validate` 起止时刷新（见 runtime.md §3），不只在 validate 时更新。无仓库 Attempt 的 `commit_sha` 允许为空。
+- 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`、`tree_sha`、`policy_revision`、`policy_hash`、运行位置和结果引用；仅当证据的 commit/tree、策略版本与 Attempt 当前值全部匹配时视为有效。worker 产生新提交、tree 变化或策略变化后，旧 `verified` Evidence 自动失效。`head_sha` 在 `task_report`、Run 退出、交接 / sync、PR head 变更与 `validate` 起止时刷新（见 runtime.md §4），不只在 validate 时更新。无仓库 Attempt 的 commit/tree SHA 允许为空，但仍须绑定策略版本与固定输入快照。
+- validator 只能在 worker Run 退出、Checkout 被冻结、验证快照只读且无未完成写 effect 后执行；验证期间发现 HEAD、tree 或策略 hash 变化，结果只能写 `failed`/`stale`，不得写当前有效的 `verified`。
 
 **ContextItem**
 - `status ∈ {proposed, ratified, disputed, superseded}`；runbook 只有在关联 Attempt 存在当前有效的 `verified` Evidence 时才能从 `proposed` 转 `ratified`。
@@ -84,13 +90,15 @@ erDiagram
 |---|---|---|---|---|
 | 1 | **Canceled** | `canceled` | `intent=canceled` | — |
 | 2 | **Done** | `done` | `intent=accepted` | `merged` |
-| 3 | **Waiting on you** | `waiting` | 有覆盖该 Task 的 open `gate` Question（含执行者权限请求）；或 live Run 为 `waiting_input / blocked`；或消息投递连续失败；或最新 Run 异常退出且结束时间晚于当前 Attempt 最近一次 `queued_at`（之后尚无人类回应或重排） | `question` / `failed` / `undelivered` |
+| 3 | **Waiting on you** | `waiting` | 有覆盖该 Task 的 open `gate` Question（含执行者权限请求）；或 live Run 为 `waiting_input / blocked / stale`；或存在 `unknown` effect、Host 失联或消息投递连续失败；或最新 Run 异常退出且结束时间晚于当前 Attempt 最近一次 `queued_at`（之后尚无人类回应或重排） | `question` / `failed` / `undelivered` / `host_unreachable` / `unknown` |
 | 4 | **In Progress** | `working` | 有 live Run 为 `active`（含 PR 返工与 best-of-N 候选运行中），或为 `idle` 且后台作业未结束 | 15 秒单行摘要 |
 | 5 | **For Review** | `review` | 无活跃 worker Run，且满足其一：有 open PR；或当前 `attempt.head_sha` 上有匹配的有效 `verified` Evidence（无仓库项目为有最新 `verified` Evidence）；或 best-of-N 全部候选已结束 | `ci_failing` / `changes_requested` / `mergeable` / `pick_1_of_n` |
 | 6 | **Queued** | `queued` | `intent=ready` 且尚未分配槽位（含失败后刚触发重排等待槽位）；或依赖未满足 | `blocked_by:[…]` / `slot` |
 | 7 | Backlog（默认折叠） | — | `intent=backlog` | — |
 
 UI 展示时的分组排列顺序固定为 `GROUP_ORDER = ['waiting','review','working','queued','done','canceled']`。判定序把 `Canceled / Done` 放在最前、把 `In Progress` 放在 `For Review` 之前，确保：① 带未决提问或旧证据的任务仍可随时取消或接受；② 已提 PR 的任务在收到 review 意见重新启动 worker 返工时，能正确回到 `In Progress`；③ 失败任务点击重试/重排刷新 `attempt.queued_at` 后，即使并发槽已满也能立即进入 `Queued` 而不会卡死在 `Waiting on you`。
+
+`Done` 只表示人的 `task.accept` 已成功写入 `intent=accepted`，并固定接受时的 `accepted_head_sha`；`merged` 只是 PR 外部事实的附加标记，不会自动改变 Task 意图或解锁依赖。未经验证接受的 Task 仍可 Done，但必须保留 `accepted_unverified` 审计事实。
 
 ### 人在 UI 上「改状态」时实际发生什么
 
@@ -102,8 +110,8 @@ UI 展示时的分组排列顺序固定为 `GROUP_ORDER = ['waiting','review','w
 | 拖到 / 选 In Progress | `attempt.start` | 依赖满足；环境可用；否则弹启动摘要说明原因 |
 | 拖到 / 选 For Review | 不提供 | 由事实决定，菜单项置灰并提示原因 |
 | 拖到 / 选 Waiting on you | 不提供 | 同上 |
-| 拖到 / 选 Done | `task.accept` | 弹窗要求后继或 no_followup；无 verified Evidence 时二次确认「未经验证接受」 |
-| 拖到 / 选 Canceled | `task.cancel` | 有 live Run 时先停止 |
+| 拖到 / 选 Done | `task.accept` | 仅作为命令入口；弹窗要求后继或 no_followup，并展示 accepted head；无 verified Evidence 时二次确认「未经验证接受」；有 live Run、写 effect 或 open gate 时阻断 |
+| 拖到 / 选 Canceled | `task.cancel` | 有 live Run 时先停止或 fence |
 | 组内拖拽排序 | `task.reorder` | 任意 |
 
 ## 4. 授权（Mandate）
@@ -112,7 +120,7 @@ UI 展示时的分组排列顺序固定为 `GROUP_ORDER = ['waiting','review','w
 type Mandate = {
   origin: 'chat' | 'source'
   grantedBy: string            // 用户 id 或 Source 上的发起人
-  scope: { project: string; task?: string; repos: string[]; write: boolean }
+  scope: { project: string; task?: string; repos: string[]; paths: string[]; actions: string[]; write: boolean }
   policyVersion: string
   evidence: string             // chat 消息 id 或 Trigger id
 }
@@ -147,7 +155,10 @@ CREATE TABLE project_repo (
   remote TEXT,
   default_branch TEXT NOT NULL,
   is_primary INTEGER NOT NULL DEFAULT 0,
-  validate_json TEXT,                    -- 仓库级验证配置（.dsh/environment.json 缺省时回退）
+  validation_policy_json TEXT,            -- 用户确认的受信验证策略；.dsh/environment.json 只可提议，不直接覆盖
+  validation_policy_hash TEXT,
+  validation_policy_revision INTEGER NOT NULL DEFAULT 0,
+  validation_policy_approved_at TEXT,
   refs_json TEXT NOT NULL DEFAULT '[]',
   refs_synced_at TEXT,
   PRIMARY KEY (project_id, alias)
@@ -179,6 +190,8 @@ CREATE TABLE task (
   repo_alias TEXT,                       -- 多仓项目指向具体仓库；未传时回退至 is_primary=1 主仓库；无仓库项目为 NULL
   ordinal REAL NOT NULL,
   successor TEXT,                        -- 'YOU-5' | 'no_followup:<理由>'
+  accepted_unverified INTEGER NOT NULL DEFAULT 0,
+  accepted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (project_id, seq)
@@ -197,6 +210,7 @@ CREATE TABLE attempt (
   base_ref TEXT,                         -- 无仓库项目为 NULL
   branch TEXT,                           -- agent/you-4-staging-verify；无仓库项目为 NULL
   head_sha TEXT,                         -- 当前分支 HEAD commit SHA；用于校验 Evidence 是否过期
+  accepted_head_sha TEXT,                -- Task accepted 时固定的代码版本
   state TEXT NOT NULL,                   -- live | adopted | superseded | ended
   preserved_ref TEXT,
   queued_at TEXT NOT NULL,               -- 最近一次排队/重试时间戳
@@ -224,8 +238,12 @@ CREATE TABLE run (
   transport TEXT NOT NULL,               -- dsh-native | acp
   session_ref TEXT NOT NULL,             -- 事务内预生成的确定性 DSH session id 或 ACP sessionId
   native_ref TEXT,                       -- 执行者自身会话 id（用于续接 / 交接）
-  mandate_json TEXT NOT NULL,
-  activity TEXT NOT NULL,                -- active | idle | waiting_input | blocked | exited
+  mandate_json TEXT NOT NULL,            -- 不可变授权来源与范围
+  capability_hash TEXT NOT NULL,         -- run_capability 的哈希；原始 token 不入库
+  capability_epoch INTEGER NOT NULL DEFAULT 0,
+  capability_expires_at TEXT,
+  host_lease_id TEXT,
+  activity TEXT NOT NULL,                -- active | idle | waiting_input | blocked | stale | exited
   exit_reason TEXT,
   summary TEXT NOT NULL DEFAULT '',
   usage_json TEXT,                       -- tokens / cost，执行者提供时
@@ -251,7 +269,10 @@ CREATE TABLE question (
   body TEXT NOT NULL,
   options_json TEXT,
   answer TEXT,
-  state TEXT NOT NULL,                   -- open | answered | withdrawn
+  state TEXT NOT NULL,                   -- open | answered | withdrawn | unknown
+  protocol TEXT,                         -- acp-permission | projects-mcp | other
+  protocol_request_id TEXT,              -- ACP 原始 permission request id
+  run_epoch INTEGER,
   created_at TEXT NOT NULL,
   answered_at TEXT
 );
@@ -259,9 +280,14 @@ CREATE TABLE question (
 CREATE TABLE evidence (
   id TEXT PRIMARY KEY,
   attempt_id TEXT NOT NULL,
-  commit_sha TEXT,                       -- 有仓库时由 Engine 强校验非空且匹配 attempt.head_sha；无仓库项目为 NULL
+  commit_sha TEXT,                       -- 固定被测 commit；有仓库时必填
+  tree_sha TEXT,                         -- 固定被测 Git tree / 输入快照
+  policy_revision INTEGER NOT NULL,
+  policy_hash TEXT NOT NULL,
+  location_id TEXT,
+  command_summary TEXT,
   kind TEXT NOT NULL,                    -- test | ci | artifact | diffstat
-  status TEXT NOT NULL,                  -- claimed | verified | failed
+  status TEXT NOT NULL,                  -- claimed | verified | failed | stale
   ref TEXT,
   detail_json TEXT,
   created_at TEXT NOT NULL
@@ -323,12 +349,17 @@ CREATE TABLE project_event (
 CREATE TABLE effect (
   kind TEXT NOT NULL,
   key TEXT NOT NULL,
-  lane_key TEXT NOT NULL,                -- 串行域键，如 'attempt:att-1' 或 'repo:proj-1/main'；同 lane_key 严格串行互斥
-  state TEXT NOT NULL DEFAULT 'queued',  -- queued | running（进程启动恢复时将残留 running 重置为 queued）
+  operation_id TEXT NOT NULL UNIQUE,      -- 外部操作稳定 ID，用于 receipt / reconcile
+  lane_key TEXT NOT NULL,                 -- 串行域键，如 'attempt:att-1'；同 lane_key 严格串行互斥
+  state TEXT NOT NULL DEFAULT 'queued',   -- queued | dispatching | awaiting_receipt | succeeded | retryable | unknown | failed
   claimed_at TEXT,
+  dispatched_at TEXT,
+  receipt_json TEXT,                      -- 外部确认结果；无确认时不可推断成功
+  external_ref TEXT,                      -- provider session/message/job ref
   payload_json TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   not_before TEXT,
+  last_error TEXT,
   PRIMARY KEY (kind, key)
 );
 

@@ -10,7 +10,7 @@
 |---|---|
 | 交互原型 `prototype/index.html` | 可用，纯前端，浏览器直接打开 |
 | 产品意图 | [docs/product/intent.md](docs/product/intent.md)（含待拍板的决策） |
-| 架构设计 v3 | [docs/architecture/overview.md](docs/architecture/overview.md)、[执行层](docs/architecture/execution.md) |
+| 架构设计 v4 | [docs/architecture/overview.md](docs/architecture/overview.md)、[执行层](docs/architecture/execution.md) |
 | 实现 | 未开始；下一步是宿主 spike 与 M0 最薄闭环，见 [路线图](docs/architecture/roadmap.md) |
 
 ## 先读这些

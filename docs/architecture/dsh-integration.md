@@ -1,6 +1,6 @@
 # DSH 宿主集成
 
-> 状态：现行（v3，2026-11-08）。执行层相关的 DSH 能力详见 [research/dsh-capabilities.md](../research/dsh-capabilities.md)。核查版本：`deepseek-harness@fcc0ad46`（DH）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
+> 状态：现行（v4，2026-11-08；worker list/filter 与执行信任受 ADR-0017/0018 约束）。执行层相关的 DSH 能力详见 [research/dsh-capabilities.md](../research/dsh-capabilities.md)。核查版本：`deepseek-harness@fcc0ad46`（DH）、`dsh-superagent-prototype@8c32a9d`（SA）。逐条证据见 [research/dsh-source-verification.md](../research/dsh-source-verification.md)。
 
 ## 1. 交付形态
 
@@ -30,7 +30,7 @@
 | 注册 `main.conversation` 承载协调者 | single 插槽，注册即替换整个对话视图（`ui-conversation/apply.ts:337,584`）。协调者用普通会话即可 |
 | 客户端调用 `workspaceRegistry.archiveSession` | 服务端服务，客户端拿不到 |
 
-**左栏原生「项目」分组与 worker 隐藏路线**：短期用 panellist + 首页面板 + 会话行徽标承载；同时向 DSH 上游提交一个最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235`（现有 `origin === 'subagent'` 过滤处）一并过滤。**M0 不依赖该补丁**：上游未合入前用插件侧前缀 + 会话行 slot 方案（见 §5 spike ①）。
+**左栏原生「项目」分组与 worker 隐藏路线**：全局入口用 panellist + 首页面板 + 会话行徽标承载；向 DSH 上游提交最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235` 一并过滤。按 [ADR-0018](../adr/0018-worker-visibility-seam.md)，M0 前必须在锁定 DSH 版本上验证真实列表过滤接缝；若插件前缀或 row slot 不能过滤，M0 阻断。不得把 row decoration 当作 hide/list-filter API，也不得用 subagent origin 或 archive 活动会话绕过。
 
 ## 3. 服务端扩展点（已核实）
 
@@ -51,7 +51,7 @@
 - **不要把高频变化的 `project_status` 放进 `systemPrompt.section`**：每次修改系统提示词都会击穿整个长会话的 LLM Prefix KV Cache；`systemPrompt.section` 只放低频变动的 `INDEX.md`，`project_status` 保持工具调用或 `agent/pre-step` 尾部增量注入。
 - 不要归档运行中的 worker 会话：`ArchivedSessionGate` 会在每个 `agent/pre-step` 拒绝已归档会话（`DH/packages/api/session-controller/src/archived-session-gate.ts:24-33`），活动中归档还会抛 `WorkspaceActiveSessionError`。
 - `workspaceRegistry.create(cwd)` 对每个新路径新建并置顶工作区（`DH/packages/workspace/workspace/src/index.ts:222-244`），是 SA 左栏爆炸的根因；而只调 `sessionController.create({ cwd })` 会把所有不属于已登记工作区的会话塞进左栏「未分组」（`tree.ts:358-364`），需由 spike ① 的插件侧方案压住。
-- 本地子进程环境变量不能用严格白名单裁剪掉 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*`，否则本地 `claude` / `codex` CLI 无法读取 `~/.claude`、`~/.codex` 与系统 Keychain；应复用宿主 `dsh-subprocess-local` 的黑名单凭据清洗（`subagent-acp/src/run.ts:344-345`）。
+- 本地子进程默认不能继承 `HOME`、`SSH_AUTH_SOCK` 或其他仓库路径；本机 CLI 登录态仅在用户显式选择 `credential=cli-login` 且 DSH sandbox 能力通过实测后按次开放。黑名单清洗可作为基础，但不能代替隔离 HOME、空 SSH agent、网络策略和仓库信任确认（详见 ADR-0017）。
 
 ## 4. 从 dsh-superagent 复用什么
 

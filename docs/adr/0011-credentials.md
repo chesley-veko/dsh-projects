@@ -1,5 +1,5 @@
-# 0011 凭据：本地复用 CLI 登录，云端只用按次注入的 API Key
-- 状态：Accepted
+# 0011 凭据：本地登录显式授权，云端只用按次注入的 API Key
+- 状态：Superseded by 0017
 - 日期：2026-11-08
 
 ## 背景
@@ -8,7 +8,7 @@ Anthropic 不允许第三方产品提供 claude.ai 订阅登录，但用户在�
 ## 决定
 - 本地：只探测已登录状态，不读不复制 token；也可用 DSH `credentials` 中的 API Key。
 - 远端：只允许 `credential:<id>`（API Key），启动该进程时按次注入；Claude 远端用 `--bare`；不同步 `~/.claude`、`~/.codex/auth.json`。
-- 子进程沿用宿主 `dsh-subprocess-local` 的黑名单凭据清洗（剥离 `DSH_*` 与敏感凭据环境变量，保留 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*` 与代理变量，确保本机 CLI 登录态与系统 Keychain 正常可用），再按次叠加注入项目声明变量；DSH 子实例独立 `DSH_HOME`。
+- 初版规则允许默认保留 `HOME`、`SSH_AUTH_SOCK` 与代理变量，以兼容本机 CLI 登录态。该规则已由 [ADR-0017](0017-repository-execution-trust.md) 收窄：默认隔离 HOME、清空 SSH agent；用户显式授权且 sandbox 实测通过时，才开放指定本机 CLI 登录态。黑名单清洗不等同于 OS sandbox。
 - UI 在启动摘要与运行头显示计费来源。
 
 ## 后果

@@ -1,0 +1,34 @@
+# Spike S2 test profile. Standalone: does NOT load dsh-superagent.
+# Port 3092 keeps it off the lab service (3082) and the S1 profile (3091).
+- patch:
+    "@deepseek-ai/dsh-host-webserver":
+      config:
+        host: 127.0.0.1
+        port: 3092
+- patch:
+    dsh-spike-s2:
+      config: {}
+- patch:
+    "@deepseek-ai/dsh-llm":
+      config:
+        providers:
+          pi-ai:
+            enabled: true
+            routes:
+              opencode-go:
+                displayName: OpenCode Go
+                apiKeyEnv: OPENCODE_API_KEY
+                api: openai-completions
+                baseURL: https://opencode.ai/zen/go/v1
+                compat:
+                  thinkingFormat: deepseek
+                models:
+                  - id: deepseek-v4.1-flash
+                headers:
+                  x-opencode-session: c978f2c1-dbab-4957-bbce-75b3c132b09d
+- patch:
+    "@deepseek-ai/dsh-agent":
+      config:
+        agent-default-model:
+          provider: opencode-go
+          model: deepseek-v4.1-flash

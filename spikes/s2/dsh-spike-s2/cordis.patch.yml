@@ -1,0 +1,15 @@
+# Bundle patch for the S2 spike plugin.
+# Mirrors the dsh-superagent bundle shape: one node entry and one browser
+# client entry; all @deepseek-ai packages stay external so the plugin runs
+# against the host's installed DSH build.
+bundles:
+  dsh-spike-s2:
+    node:
+      entry: lib/index.js
+    client:
+      entry: lib/client.js
+      platform: web
+      external:
+        - '@deepseek-ai/*'
+        - react
+        - react-dom

@@ -65,10 +65,7 @@
 
 ## 5. M0 前必须做的 spike
 
-1. 验证**不改宿主**时压住本地 worker 会话：插件侧固定会话 id 前缀 `proj-worker-`，用 `sidebar.session.row.*` / 会话列表过滤 slot 隐藏或折叠到协调者行下；评估 `openSession`、子代理与文件上传是否受影响。上游 `origin` 扩展仅作增强（`origin` 目前是字面量类型 `'subagent'`，见 `core/session/src/types.ts:122,161`、`api/session-controller/src/list.ts:374`、`client/sessions/service.ts:36`、`lineage.ts:34`，需改动 core 会话头与 controller / client 多处，不是一行补丁）。
-2. 验证协调者会话挂载 `conversation.view`（`project-overview` / `project-run`）+ `conversation.composer` 接管时，右栏 `sidebarRightTabs` 保持常驻且底部无双输入框冲突。
-3. 验证 `presetCtx.tools.restrict({ deny })` + `presetCtx.tools.guard()` 完全屏蔽宿主平面 `working_directory` 与全局 MCP 工具。
-4. 验证 `presetCtx.systemPrompt.section` 注入 `INDEX.md` 在触发 `context-compaction` 后仍完整保留且 Prefix KV Cache 稳定命中。
+已移至 [spike/README.md](../spike/README.md)，共 S0–S7 八个工作包。其中 S1（worker 列表过滤接缝）为 M0 阻断项：`sidebar.session.row.*` 只算装饰，不能作为隐藏方案（[ADR-0018](../adr/0018-worker-visibility-seam.md)）。
 
 ## 6. 执行层可复用的 DSH 件（第三轮核查）
 

@@ -11,6 +11,7 @@
 | [architecture/runtime.md](architecture/runtime.md) | Engine 与 effect、协调者工具集、worker 与 worktree、Question Tray、Driver、Library 与记忆、环境、生命周期、预算 |
 | [architecture/dsh-integration.md](architecture/dsh-integration.md) | 已核实的 DSH 客户端 / 服务端扩展点、陷阱、从 dsh-superagent 复用什么、M0 前 spike |
 | [architecture/roadmap.md](architecture/roadmap.md) | Spike、M0–M4 与验收、度量；含验证策略信任、capability、receipt/reconcile、Host 失联故障门槛 |
+| [spike/README.md](spike/README.md) | M0 前 Spike 计划：S0–S7 工作包、通过标准、报告模板、审核清单 |
 | [design/interaction-spec.md](design/interaction-spec.md) | 交互规格（原型的文字版） |
 | [design/prototype-alignment.md](design/prototype-alignment.md) | 原型与架构的冲突、已修正项、待补项 |
 | [design/dsh-native-ui.md](design/dsh-native-ui.md) | DSH 原生侧栏、对话头、过程控件、输入区规则 |

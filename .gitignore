@@ -17,3 +17,6 @@ build/
 
 # Logs
 *.log
+
+# Spike 实验证据（只存 dsh-01 本地，不进分支；见各 spike 的 README）
+spikes/*/evidence/

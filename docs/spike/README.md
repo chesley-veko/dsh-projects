@@ -40,14 +40,14 @@ Spike 只回答一个问题：**文档里押注的 DSH 宿主接缝和 ACP 执�
 
 - **要回答**：锁哪个 DSH 提交；文档里引用的行号和接口在该提交上是否仍成立。
 - **步骤**：拉取上游 `main` 与 `fcc0ad46`，决定锁定版本并说明理由。逐条复核下列此前未核实的点，结果写入 [research/dsh-source-verification.md](../research/dsh-source-verification.md) 的新小节：
-  - `file-upload/src/index.ts:223` 拒绝向 subagent 上传；
-  - `subagent/src/index.ts:459` 的 `parent-unavailable` 错误路径；
+  - `packages/client/file-upload/src/index.ts:283-290` 拒绝向 subagent 上传（`assertOrdinaryAgent`；门控调用在 `:237` 的 `store()`）；
+  - `subagent` 无 `parent-unavailable` 错误路径：实际为 `packages/subagent/subagent/src/index.ts:275-277` 的 `UNAUTHORIZED`（要求精确的 live parent agent）与 `packages/subagent/subagent/src/control.ts:85-89` 的 `subagent/delivery-unavailable`；
   - `conversation.input.left`、`conversation.input.model` 插槽名是否存在；
   - InputBar 空输入时是否保留 Stop；
-  - `subagent-acp/src/run.ts:344-345` 子进程环境黑名单清洗的具体规则；
-  - `ctx.agents.create` 签名（`experimental/webhook/src/session.ts:109-118`）与 `agentOptions` 的模型字段（`core/agent/src/types.ts:92`）；
+  - `subagent-acp/src/run.ts:344-345` 子进程环境黑名单清洗的具体规则（该处是注释；规则在 `packages/subprocess/subprocess/src/index.ts:47,66-80` 与 `types.ts:13`）；
+  - `ctx.agents.create` 签名（`experimental/webhook/src/session.ts:110-118`，流程 `:93-155`）与 `agentOptions` 的模型字段（`core/agent/src/runtime-types.ts:35`；`ModelSelection.model` 见 `types.ts:83`）；
   - [research/dsh-capabilities.md](../research/dsh-capabilities.md) 约 157、243 行的 `ctx.agents.create` 旧写法。
-- **通过标准**：每条给出「成立 / 不成立 / 已移动到 X」与新行号。
+- **通过标准**：每条给出「成立 / 不成立 / 已移动到 X」与新行号。基线口径：S0 锁定 `fcc0ad46`（release 合回 `origin/master` 的合并提交，PR #7873）；S1/S2 实验跑的是官方 tag `dsh-v0.2.2-rc.1`（`66491b05`），比它早 811 个提交，`subagent/subagent/src/index.ts` 与 `control.ts` 在两个提交间有差异，引用行号时按对应提交注明。
 - **产出**：锁定 SHA，复核表，需同步修改的文档清单。
 
 ### S1 Worker 会话可见性接缝（ADR-0018）
@@ -57,7 +57,7 @@ Spike 只回答一个问题：**文档里押注的 DSH 宿主接缝和 ACP 执�
   1. 用 `ctx.agents.create` 创建 id 前缀为 `proj-worker-` 的会话，确认它在左栏的实际位置。
   2. 逐一尝试插件侧方案：会话列表过滤类 slot（若存在）、`sidebar.session.row.*`、客户端 session service 层过滤、按 cwd 归入某个已登记工作区。记录每种方案是**从列表移除**还是**仅装饰**。
   3. 对能移除的方案，验证：`openSession` 仍能打开该 worker；worker 内可调用 `subagent`；可向 worker 上传文件；协调者会话重建不影响运行中 worker；DSH 重启后 worker 仍不出现在「未分组」。
-  4. 若插件侧全部失败，写出上游 `SessionOrigin = 'project-worker'` + `tree.ts:235` 过滤的最小 diff 草案，列出涉及文件（`core/session/src/types.ts:122,161`、`api/session-controller/src/list.ts:374`、`client/sessions/service.ts:36`、`lineage.ts:34`），本地打补丁跑同样的 3 项验证。
+  4. 若插件侧全部失败，写出上游 `SessionOrigin = 'project-worker'` + `tree.ts:235` 过滤的最小 diff 草案，列出涉及文件（`core/session/src/types.ts:122,161`、`api/session-controller/src/list.ts:374`、`client/sessions/service.ts:36`、`lineage.ts:34`），本地打补丁跑同样的 3 项验证。实测落地范围已扩到 18 个文件、26 行（含下游头类型与持久化格式校验门控），完整清单见 [ADR-0003](../adr/0003-host-extension-points.md)。
 - **通过标准**：存在一种不改宿主的方案，worker 不出现在左栏列表，且第 3 步全部通过。只做到 row 装饰算**不通过**。
 - **证据**：左栏截图（创建前、创建后、重启后），每项能力的操作录屏或日志。
 

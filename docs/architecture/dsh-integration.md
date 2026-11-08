@@ -11,7 +11,7 @@
 | 需求 | 扩展点 | 状态与契约 |
 |---|---|---|
 | Projects 全局入口与首页 | `sidebar.panellist` 图标 → keyed 插槽 `main` 注册首页面板 | 可用。SA 用同样方式注册自己的面板（`SA/src/client/index.tsx:48-58`）；仅用于全局项目列表首页 |
-| 项目概览页与外部执行者运行视图 | `conversation.view`（`id: 'project-overview' \| 'project-run'`）+ `conversation.composer`（chain 插槽） | **不注册为 `main` 面板**：宿主 `ui-sidebar-right/src/client/index.ts:171`、`shell/RightbarRoot.tsx:35` 在 `activePanelId !== null` 时会强制收起右栏。挂在协调者会话的 `conversation.view` 下可保持 `activePanelId === null`、右栏常驻；同时用 `conversation.composer` 在概览页隐藏输入框、在外部运行视图接管为该 Run 的输入框（避免与宿主常驻 `composerSeat` 叠出双输入框） |
+| 项目概览页与外部执行者运行视图 | `conversation.view`（`id: 'project-overview' \| 'project-run'`）+ `conversation.composer`（chain 插槽） | **不注册为 `main` 面板**：宿主 `ui-sidebar-right/src/client/index.ts:171`、`shell/RightbarRoot.tsx:35` 在 `activePanelId !== null` 时会强制收起右栏。挂在协调者会话的 `conversation.view` 下可保持 `activePanelId === null`、右栏常驻。S2 结论（部分完成，tag `dsh-v0.2.2-rc.1`）：视图 tab 来自全部已注册条目，宿主 tab 栏无按会话过滤，因此两个 tab 对所有会话可见，视图内容必须按会话自行门控；`conversation.composer` 接管按会话生效，同一协调者的 overview 与 run 只能共用接管 composer（宿主无可读 active view 状态），或由插件内部按当前激活视图切换渲染。UI 层因 web 鉴权缺陷未直接观察，以上为推断（源码）+ 构建/API 层验证（S2 报告） |
 | 协调者会话行的项目图标、未读与待回答数 | `sidebar.session.row.leading` / `trailing`、`sidebar.workspaces.session.row.action` | 可用 |
 | 「加入项目」右键菜单 | `sidebar.workspaces.session.menu.item` | 可用，但标注 **Legacy**（`DH/packages/client/ui-workspace/src/client/contract/slots.ts:166-201`），需跟进迁移 |
 | 右栏 Project 面板 | `ctx.sidebarRightTabs.register` + 客户端 root 级 `ProjectUiStore` | 可用（`DH/packages/client/ui-sidebar-right/src/client/tab-registry.ts:253`）。宿主 `rightbar.session` 按 `sessionId` 隔离（`ui-sidebar-right/src/client/index.ts:160-181`），客户端通过 root 级 `ProjectUiStore` 按当前 `sessionId`（协调者或同项目本地 DSH worker）反查 `projectId`，跨会话共享同一项目的看板与详情状态 |
@@ -26,19 +26,19 @@
 | 在左栏插入独立「项目」区（锚定 `.kB3qhq_regionArea`） | 没有区域插槽；`sidebar.workspaces` 是 single 插槽且被 ui-workspace 占用（`DH/packages/client/ui-sidebar/src/client/contract/slots.ts:58`）。CSS Module 哈希类名随版本变化 |
 | 把项目概览页或外部执行者运行视图注册进 `main` 插槽 | 激活任何 `main` 面板都会令 `activePanelId !== null`，触发 `ui-sidebar-right/src/client/index.ts:171`、`shell/RightbarRoot.tsx:35` 立即关闭右栏 |
 | 占用 `conversation.view` 的 `'trajectory'` ID | 已被宿主 `ui-trajectory` 占用（`DH/packages/client/ui-trajectory/src/client/index.ts:80-82`），必须用 `'project-overview'` 与 `'project-run'` |
-| 把本地 DSH worker 伪装成 `origin: 'subagent'` | 触发宿主 subagent 围栏：① 默认 `maxDepth=1`（`subagent/subagent/src/index.ts:196`）剥夺 worker 内部调用 `subagent` 的能力；② 父会话未加载时 `subagents.prompt` 抛 `subagent/parent-unavailable`（`subagent/src/index.ts:459`）；③ 协调者重建触发 `drainDescendants` 强杀在跑 worker（`subagent/subagent/src/manager.ts:283`）；④ `file-upload/src/index.ts:223` 拒绝向 subagent 上传文件 |
+| 把本地 DSH worker 伪装成 `origin: 'subagent'` | 触发宿主 subagent 围栏：① 默认 `maxDepth=1`（`subagent/subagent/src/index.ts:196`）剥夺 worker 内部调用 `subagent` 的能力；② 父会话不是精确的 live agent 时 `startActivation` 抛 `UNAUTHORIZED`（`subagent/subagent/src/index.ts:275-277`），续接不可用时抛 `subagent/delivery-unavailable`（`subagent/subagent/src/control.ts:85-89`）；③ 协调者重建触发 `drainDescendants` 强杀在跑 worker（`subagent/subagent/src/manager.ts:283`）；④ `packages/client/file-upload/src/index.ts:283-290` 的 `assertOrdinaryAgent` 拒绝向 subagent 上传文件（门控调用 `:237` 的 `store()`） |
 | 注册 `main.conversation` 承载协调者 | single 插槽，注册即替换整个对话视图（`ui-conversation/apply.ts:337,584`）。协调者用普通会话即可 |
 | 客户端调用 `workspaceRegistry.archiveSession` | 服务端服务，客户端拿不到 |
 
-**左栏原生「项目」分组与 worker 隐藏路线**：全局入口用 panellist + 首页面板 + 会话行徽标承载；向 DSH 上游提交最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235` 一并过滤。按 [ADR-0018](../adr/0018-worker-visibility-seam.md)，M0 前必须在锁定 DSH 版本上验证真实列表过滤接缝；若插件前缀或 row slot 不能过滤，M0 阻断。不得把 row decoration 当作 hide/list-filter API，也不得用 subagent origin 或 archive 活动会话绕过。
+**左栏原生「项目」分组与 worker 隐藏路线**：全局入口用 panellist + 首页面板 + 会话行徽标承载；向 DSH 上游提交最小补丁 PR：① 增加 list 型 `sidebar.regions` 插槽；② 在 `SessionOrigin`（`DH/packages/core/session/src/types.ts:122,161`，字面量类型，另有 controller `list.ts:374` 与 client `service.ts:36`、`lineage.ts:34` 同步修改）增加 `'project-worker'`，并在 `DH/packages/client/ui-workspace/src/client/tree.ts:235` 一并过滤。该补丁在锁定发布版上实测为 18 个文件、26 行。基线按 S1/S2 报告口径为官方 tag `dsh-v0.2.2-rc.1`（`66491b05`）；S0 锁定的 `fcc0ad46` 是 release 合回 `origin/master` 的合并提交（PR #7873），比该 tag 晚 811 个提交。S0 复核的行号按 `fcc0ad46` 引用；实验运行的是 0.2.2-rc.1 发布构建（tag）。本次引用的文件中，`subagent/subagent/src/index.ts` 与 `control.ts` 在两个提交间有差异，其余一致，完整清单与不可改的普通路由检查点见 [ADR-0003](../adr/0003-host-extension-points.md)。按 [ADR-0018](../adr/0018-worker-visibility-seam.md)，M0 前必须在锁定 DSH 版本上验证真实列表过滤接缝；若插件前缀或 row slot 不能过滤，M0 阻断。不得把 row decoration 当作 hide/list-filter API，也不得用 subagent origin 或 archive 活动会话绕过。
 
 ## 3. 服务端扩展点（已核实）
 
 | 能力 | 用法 | 证据 |
 |---|---|---|
-| 工具注册与协调者围栏 | `agent.ctx.tools.register` 注册工具；协调者 preset 调用 `presetCtx.tools.restrict({ deny })` + `presetCtx.tools.guard()` 屏蔽宿主平面全局工具（如 `working_directory`） | `DH/packages/core/tools/src/index.ts:162-190,384-396`；`restrict` 只能在 agent 作用域 ctx 上调用，`deny` 中出现未知全局工具名会直接抛错`；`DH/packages/bundle/base/cordis.patch.yml:164` |
+| 工具注册与协调者围栏 | `agent.ctx.tools.register` 注册工具；协调者围栏计划用 `presetCtx.tools.restrict({ deny })` + `presetCtx.tools.guard()` 屏蔽宿主平面全局工具（如 `working_directory`） | `DH/packages/core/tools/src/index.ts:162-190,384-396`；`restrict` 要求 agent-scoped ctx（S3 实测：preset 挂载路径可用，前提是插件与宿主共用同一份 `dsh-scope`）；`deny` 中未知全局工具名抛 `unknown global tool` 并回滚（S3 步骤 2）；`DH/packages/bundle/base/cordis.patch.yml:164` |
 | HTTP | `webServer.register('/projects', …)`，仅本机同源（同时提供 `/projects/mcp` 供本机 `projects-mcp` 薄代理转发回单写者 `Engine`） | `SA/src/app/http.ts:231-237` |
-| 本地 worker 会话创建与初始模型 | 用事务内预生成的 `sessionId` 调 `ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })`（初始模型由 `agentOptions` 提供，见 `DH/packages/core/agent/src/types.ts:92`） | `DH/packages/experimental/webhook/src/session.ts:109-118`（注意该路径在 `:107` 先调 `workspaceRegistry.create`，照抄会重现左栏工作区爆炸，本插件**不调用**） |
+| 本地 worker 会话创建与初始模型 | 用事务内预生成的 `sessionId` 调 `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })`（`agentOptions.model` 见 `DH/packages/core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `types.ts:83`；S4 实测：不传 `provider/model` 时新会话无默认模型，驱动须显式解析并传入） | `DH/packages/experimental/webhook/src/session.ts:110-118`（流程 `:93-155`；注意该路径在 `:107` 先调 `workspaceRegistry.create`，照抄会重现左栏工作区爆炸，本插件**不调用**） |
 | 投递与插话 | `agent.inbox`、`steer()` / `inject()`；SA 的 `AgentDelivery` 实现按 requestId 幂等的 queue / steer / inject | `DH/packages/core/agent/src/runtime-types.ts`；`SA/src/app/delivery.ts:66-85` |
 | 事件与系统提示词 | `agent/status`、`agent/inbox/*`、`agent/pre-step`、`session/event`；`presetCtx.systemPrompt.section` 常驻注入 `INDEX.md` | `DH/packages/core/system-prompt/src/index.ts:484` |
 | 仓库说明注入 | `dsh-agent-instructions` 读 `AGENTS.md / CLAUDE.md / *.local.md` | `DH/packages/context/agent-instructions/src/config.ts:12-13` |
@@ -51,7 +51,15 @@
 - **不要把高频变化的 `project_status` 放进 `systemPrompt.section`**：每次修改系统提示词都会击穿整个长会话的 LLM Prefix KV Cache；`systemPrompt.section` 只放低频变动的 `INDEX.md`，`project_status` 保持工具调用或 `agent/pre-step` 尾部增量注入。
 - 不要归档运行中的 worker 会话：`ArchivedSessionGate` 会在每个 `agent/pre-step` 拒绝已归档会话（`DH/packages/api/session-controller/src/archived-session-gate.ts:24-33`），活动中归档还会抛 `WorkspaceActiveSessionError`。
 - `workspaceRegistry.create(cwd)` 对每个新路径新建并置顶工作区（`DH/packages/workspace/workspace/src/index.ts:222-244`），是 SA 左栏爆炸的根因；而只调 `sessionController.create({ cwd })` 会把所有不属于已登记工作区的会话塞进左栏「未分组」（`tree.ts:358-364`），需由 spike ① 的插件侧方案压住。
-- 本地子进程默认不能继承 `HOME`、`SSH_AUTH_SOCK` 或其他仓库路径；本机 CLI 登录态仅在用户显式选择 `credential=cli-login` 且 DSH sandbox 能力通过实测后按次开放。黑名单清洗可作为基础，但不能代替隔离 HOME、空 SSH agent、网络策略和仓库信任确认（详见 ADR-0017）。
+- 本地子进程**会**继承 `HOME` 与 `SSH_AUTH_SOCK`，不要依赖环境清洗阻断读取：`scrubbedParentEnv()` 丢弃匹配凭据模式的变量名与 `DSH_*` 前缀，但保留 `HOME`，且全仓不处理 `SSH_AUTH_SOCK`（S7 实测：Landlock 下共享宿主真实 `/tmp`，可 glob `/tmp/ssh-*/agent.*` 找到存活套接字）。本机 CLI 登录态仅在用户显式选择 `credential=cli-login` 且 DSH sandbox 能力通过实测后按次开放。黑名单清洗可作为基础，但不能代替隔离 HOME、空 SSH agent、网络策略和仓库信任确认（详见 ADR-0017）。
+
+### 3.1 S2–S4 实测修订（2026-11-08 初跑，2026-11-09 修复复跑，tag `dsh-v0.2.2-rc.1`）
+
+- **S2（部分完成）**：`conversation.view` 的 tab 来自全部已注册条目，宿主 tab 栏无按会话过滤（推断（源码）：`ui-conversation/apply.ts:211-222`），`project-overview` / `project-run` 对所有会话可见，视图内容须自行按会话门控。`conversation.composer` 接管按会话生效；宿主无可读的 active view 状态（`ui-conversation` 全仓无 `activeView` / `currentView`），同一协调者的两个视图只能共用接管 composer，或由插件内部按当前激活视图切换渲染。构建与 API 层已通过（消息 POST 返回 `{ok:true}`，协调者以默认模型回复）；tab、右栏与单输入框的 UI 观察因 dsh 0.2.2-rc.1 web 鉴权缺陷未完成（[S2 报告](../spike/reports/S2-coordinator-view.md)）。
+- **S3（通过（有条件））**：围栏在 preset 挂载路径可用。协调者可见工具 33 → 2（`spike_projects_probe`、`spike_decoy_shell`）；被屏蔽工具不在 schemas（不可见即不可调）；decoy 被 guard 拦截且无副作用；未知全局工具名与 scoped 名都抛 `unknown global tool` 并回滚；`compactNow` 压缩 62 节点后 INDEX section 逐字节保留（299 B），`cacheReadTokens` 9600→20096（[S3 报告](../spike/reports/S3-coordinator-fence.md)）。
+- **S3 部署约束**：`@deepseek-ai/dsh-scope` 必须与宿主共用同一模块实例。插件构建要 `external: [/^@deepseek-ai\//]`；profile 不得安装与宿主同名的 `@deepseek-ai/*` 包，已重复安装时软链回宿主副本（spike 的 `relink-host-packages.sh`），每次 `pnpm install` 后重跑。
+- **S3 preset 组合**：preset 不继承标准工具集；需要 INDEX 与压缩的协调者 preset 必须自带 compaction 组，否则 `compactNow` 返回 503。INDEX 用 `systemPrompt.section`，不用 message/context。
+- **S4（有条件通过）**：`ctx.agents.create` 只校验 `cwd` 为绝对路径，不建目录、不校验存在性，Engine 必须在 `checkout.prepare` 阶段自行校验并创建目录。`AgentRegistry.create` 不套全局默认模型，入口须把 `ctx.agentDefaultModel.currentSelection()` 合入 `agentOptions`；compaction 用 `agentPresets.serviceFor(agent, 'compaction')`（引擎在 preset 组内 isolate）。检查 5 的 Ticket 对照、6a/6b 与 7 未复验（[S4 报告](../spike/reports/S4-native-worker.md)）。
 
 ## 4. 从 dsh-superagent 复用什么
 
@@ -71,7 +79,7 @@
 
 | 能力 | DSH 件 | 用法 / 限制 |
 |---|---|---|
-| 本地起 DSH worker 并指定 preset、模型、权限 | `ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })` | 预生成 `sessionId` 防孤儿会话；`model/selection` 事件设初始模型且不污染全局默认 |
+| 本地起 DSH worker 并指定 preset、模型、权限 | `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })` | 预生成 `sessionId` 防孤儿会话；`model/selection` 事件设初始模型且不污染全局默认。S4 实测：`cwd` 只透传、不建目录、不校验存在性（指向不存在目录仍创建成功），Engine 须在 `checkout.prepare` 阶段自行校验并创建目录；未传 `provider/model` 时新会话无默认模型 |
 | 运行中切模型 | `session-controller/src/commands.ts:166`、`core/agent/src/model-selection.ts:157` | 记为 `run_event` |
 | 远端 DSH 执行者 | `packages/acp/acp`（`dsh --profile acp`：new / list / resume / close / `set_config_option{model, reasoning_effort}`） | 不支持 `session/load`、modes、plans、client fs / terminal |
 | 外部 agent 配置格式 | `packages/subagent/subagent-acp`（`command / args / env / permission`） | 只借配置格式与 `subprocess-local` 凭据清洗；运行用自建 ACP client |

@@ -86,7 +86,7 @@ interface ExecutorDriver {
 
 | 执行者 | 本地 | 远端 | 选模型 | 续接 | 备注 |
 |---|---|---|---|---|---|
-| **DSH** | `dsh-native`：`ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })` | `acp`：远端 `dsh --profile acp` | 是（`agentOptions` 初始模型 / ACP `set_config_option`） | 是（ACP `session/resume`） | 本地运行保持 `delegationDepth=0` 的完整 DSH 会话（可用子代理与文件上传），不调用 `sessionController.selectModel` 以免篡改用户全局默认模型 |
+| **DSH** | `dsh-native`：`ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })`（`agentOptions.model` 见 `core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `types.ts:83`） | `acp`：远端 `dsh --profile acp` | 是（`agentOptions` 初始模型 / ACP `set_config_option`） | 是（ACP `session/resume`） | 本地运行保持 `delegationDepth=0` 的完整 DSH 会话（可用子代理与文件上传），不调用 `sessionController.selectModel` 以免篡改用户全局默认模型 |
 | **Claude Code** | `acp`：`@agentclientprotocol/claude-agent-acp` | 同左（远端安装） | 是 | 是（会话文件在本地磁盘） | 远端必须 API Key（`--bare` + `ANTHROPIC_API_KEY`，`--hide-claude-auth`） |
 | **Codex** | `acp`：`@agentclientprotocol/codex-acp`（底层 app-server） | 同左 | 是（model、reasoning_effort） | 是 | 远端用 `CODEX_API_KEY` 按次注入 |
 | **Gemini CLI** | `acp`：`gemini --acp`（原生） | 同左 | 视版本 | 视版本 | 免费层已迁移到 Antigravity CLI，需确认用户账户类型 |
@@ -241,7 +241,7 @@ UI 在启动摘要和运行头显示计费来源：「本机 Claude 登录」或
 
 | 需要 | 复用 | 自建 |
 |---|---|---|
-| 本地 DSH 执行者 | `ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })`、`sandbox-policy`、`permission-presets`、`user-approval` | 把会话绑到 Run；左栏过滤 `origin === 'project-worker'` |
+| 本地 DSH 执行者 | `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions: { provider, model }, setup })`（`agentOptions.model` 见 `core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `types.ts:83`）、`sandbox-policy`、`permission-presets`、`user-approval` | 把会话绑到 Run；左栏过滤 `origin === 'project-worker'` |
 | 远端 DSH 执行者 | `dsh --profile acp`（`packages/acp/acp`） | 远端安装与启动 |
 | 外部执行者 | 配置格式对齐 `subagent-acp` | 完整 ACP client（保留事件、权限转人工、按次选模型、续接、合成 `steer`） |
 | worktree | `experimental/worktree` 的 create / restore | 路径锁、回收、preserved ref、与 Task 关联 |

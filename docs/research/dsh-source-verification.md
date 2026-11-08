@@ -102,3 +102,44 @@
   - `Agent.inbox.nextTurn` / `nextStep`，以及 `steer()` / `inject()`（`DH/packages/core/agent/src/runtime-types.ts:77-79,199,260,270`）。`followup()` 是 superagent 实际调用的方法（`SA/src/app/delivery.ts:79-81`），**未在 runtime-types 中定位到行号**。
   - 事件 `agent/inbox/claimed`。
   - superagent 的 `AgentDelivery` 在这些接口之上实现了按 requestId 幂等的投递，分 queue / steer / inject 三种模式（`delivery.ts:66-85`）。协调器可以直接复用。
+
+## 7. S0 复核（2026-11-08，deepseek-harness@fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159）
+
+**锁定决定：锁定 `fcc0ad46`（全 SHA `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`）。**
+- 2026-11-08 拉取并 `fetch` 后，`origin/main` 与 `origin/master` 均为 `fcc0ad46`，即上游自 2026-11-04（PR #7873，release-dsh-0.2.2-rc.1 合入 master）以来没有前进，无新 HEAD 可跟进。
+- 与文档基线一致，无需改锁；以下行号均按该 SHA 引用。
+- 环境：node v24.22.1，npm 10.9.4，Ubuntu 24.04.5 LTS（Linux 7.0.0-43-generic x86_64）；dsh-superagent-prototype `8c32a9d`（已核实，工作树干净）。
+- 注意：本机全局 `@deepseek-ai/dsh` 当前**未安装**（VM 更换后全局包丢失，`npm ls -g` 为空），任务书所写“本机全局 0.2.1-rc.3”已过期；0.2.1-rc.3 现只在 dsh-01（Instabox，`/opt/npm/bin/dsh`，node v22.23.3）上。本机 fork 为 0.2.1-alpha.4（commit `946b2295`），不是 S0 基线。另：锁定的 harness 是 0.2.2-rc.1 合入点，比 0.2.1-rc.3 新，S1+ 实验须注明实际跑的 DSH 构建版本。
+
+以下全部为源码阅读结论，按 Spike §2 规则 3 标「推断（源码）」，不算运行通过；运行验证属 S1–S7。
+
+### 复核表
+
+| 检查项 | 结论 | 新行号 / 证据 |
+|---|---|---|
+| `file-upload` 拒绝向 subagent 上传 | 成立（已移动） | `DH/packages/client/file-upload/src/index.ts:283-290`，`assertOrdinaryAgent`：`origin === 'subagent'` 时抛 `RemoteError('subagent/attachment-invalid', 'subagent conversations do not accept file uploads', { reason: 'SUBAGENT_FILE_UNSUPPORTED' })`；门控调用在 `store()`（`:237`）。任务书的 `:223` 是 `bindPrompt` 内，无拒绝逻辑；路径也应为 `packages/client/file-upload/...` |
+| `subagent` 的 `parent-unavailable` 错误路径 | **不成立** | 全仓 grep `parent-unavailable`（src，仅排除 node_modules/编译产物）零命中；大小写不敏感的 `parent…unavailable` 也只命中测试描述。最接近的真实行为有二：`DH/packages/subagent/subagent/src/index.ts:275-277`，`startActivation` 要求 parent 必须是精确的 live agent，否则 `SubagentError('subagent creation requires the exact live parent agent', 'UNAUTHORIZED')`；以及 `subagent/delivery-unavailable`（`control.ts:85-89`，continuation/persistence 不可用时）。`:459` 当处是 `prompt` 的注释行（cold resume 满容时 `delivery-unavailable`），不是 parent 错误路径 |
+| `conversation.input.left`、`conversation.input.model` 插槽名 | 成立 | `left`：定义 `DH/packages/client/ui-conversation/src/client/apply.ts:470`（`{ kind: 'list', scope: 'session' }`），契约 `contract/slots.ts:320`，渲染 `skeleton/InputBar.tsx:523`。`model`：定义 `apply.ts:473`（`{ kind: 'single', scope: 'session' }`），契约 `slots.ts:362`（带 `InputControlOwnerProps`），渲染 `InputBar.tsx:530`；`ui-model-selection` 在 `index.ts:172-173` 注入该座位 |
+| InputBar 空输入时保留 Stop | 成立（源码） | `DH/packages/client/ui-conversation/src/client/skeleton/InputBar.tsx:355-365`，注释原文“An ordinary running session keeps Stop while the composer is empty or owner-blocked”；`const primaryStops = running && subagent === null && !sending && (empty \|\| blocked !== undefined)`，主按钮随即显示 Stop 并调用 `stopAction`。边界：`subagent !== null`（continuable child）时主按钮仍为 Send、Stop 独立展示（`:363-364`）；权限快照拒绝停止（`cancelDenied`）时无 Stop（`:60-66`） |
+| `subagent-acp` 子进程环境黑名单清洗 | 成立（规则在 seam） | `DH/packages/subagent/subagent-acp/src/run.ts:344-345` 本身是注释：“The seam's scrub drops ambient credentials and DSH_* names while spec.env … merges after it”。真正规则在 `DH/packages/subprocess/subprocess/src/index.ts:66-80` 的 `scrubbedParentEnv()`：丢弃名字匹配 `/KEY\|PASSWORD\|SECRET\|TOKEN/i` 的变量（`SENSITIVE_ENV_PATTERN`，`:47`）与全部 `DSH_` 前缀（`DSH_ENV_PREFIX = 'DSH_'`，`types.ts:13`），随后叠加 `proxyEnvironmentForChild()` 的代理变量还原；`spec.env` 在 scrub **之后**合并，显式条目即使命中黑名单模式也会透传（`run.ts:44-48`，如子进程自己的 `DEEPSEEK_API_KEY`、`DSH_PERMISSION_MODE`）。注意：黑名单只是名字启发式，`subprocess-local/README.md:156` 明确写了 `*PASSPHRASE*` 之类 differently named secrets 会漏网 |
+| `ctx.agents.create` 签名 | 成立（行号微调） | `DH/packages/experimental/webhook/src/session.ts:110-118`（任务书写的 `:109-118` 中，`:109` 是 `sessionId` 生成行，调用本身起于 `:110`）：`ctx.agents.create({ sessionId, signal, meta: { cwd: workspace.path, agentPreset: preset.id }, agentOptions: resolved.agentOptions, setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, preset.id) } })`。所属函数为 `createWebhookSession`，`:93-155` |
+| `agentOptions` 的模型字段 | 已移动到 X | 任务书的 `DH/packages/core/agent/src/types.ts:92` 现为 `ModelSelectionProjection` 内的注释行，不是模型字段。真实位置有二：`types.ts:83`（`ModelSelection.model: string`，“Provider-owned model id”）；`DH/packages/core/agent/src/runtime-types.ts:35`（`AgentOptions.model?: string`，“Model id interpreted by the selected provider adapter”，同接口另有 `provider?` / `reasoningEffort?` / `maxTokens?`） |
+| `dsh-capabilities.md` 约 157、243 行的 `ctx.agents.create` 旧写法 | 需同步修改 | `:157`：`ctx.agents.create({sessionId, meta:{cwd, agentPreset}, agentOptions, setup})`——与真实调用相比**缺 `signal` 字段**；且其流程引用 `session.ts:100-135` 应改为 `:93-155`（创建调用 `:110-118`）。`:243`：表格简写 `ctx.agents.create({agentOptions})`，作为摘要可接受，但只列一个字段易误读为完整签名，应改为完整签名或指向 `:157` |
+
+### 需同步修改的文档清单
+
+1. `docs/research/dsh-capabilities.md:157`：补 `signal` 字段；流程行号 `session.ts:100-135` → `:93-155`（创建调用 `:110-118`）。
+2. `docs/research/dsh-capabilities.md:243`：表格简写改为完整签名或指向 `:157`。
+3. `docs/spike/README.md` §3 S0 小节的行号引用：
+   - `file-upload/src/index.ts:223` → `packages/client/file-upload/src/index.ts:283-290`（门控调用 `:237`）；
+   - `subagent/src/index.ts:459` 的 `parent-unavailable` → 不成立，改写为 `startActivation :275-277`（UNAUTHORIZED）与 `control.ts:85-89` 的 `delivery-unavailable`；
+   - `subagent-acp/src/run.ts:344-345` → 成立，但注明是注释引用，规则实现在 `packages/subprocess/subprocess/src/index.ts:47,66-80` 与 `types.ts:13`；
+   - `experimental/webhook/src/session.ts:109-118` → `:110-118`；
+   - `core/agent/src/types.ts:92` → `types.ts:83`（`ModelSelection.model`）与 `runtime-types.ts:35`（`AgentOptions.model?`）。
+4. 任务书背景中“本机全局 `@deepseek-ai/dsh@0.2.1-rc.3`”已过期，应更新为当前实测状态（本机全局未安装；0.2.1-rc.3 只在 dsh-01）。
+
+### 未核实项
+
+- 本轮未运行任何实验：以上结论全部来自源码阅读，按 Spike §2 规则 3 标推断（源码），不算运行通过；运行验证属 S1–S7。
+- dsh-01 上的 0.2.1-rc.3 版本未在本轮复核，引用 2026-11-08 上午的安装报告。
+- InputBar Stop 的两个边界（continuable child 时 Stop 不占主按钮、`cancelDenied` 时无 Stop）只读了源码，未在 UI 上实测。

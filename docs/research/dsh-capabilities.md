@@ -151,10 +151,10 @@
 
 **外部 ACP 代理当子代理：** 可以，见 Q1.2，有上面列的限制。
 
-**创建 root session 的现成代码**（Projects 协调器最该抄的）：`packages/experimental/webhook/src/session.ts:100-135`。流程是：
+**创建 root session 的现成代码**（Projects 协调器最该抄的）：`packages/experimental/webhook/src/session.ts:93-155`（创建调用 `:110-118`）。流程是：
 1. `agentPresets.resolve/acquireScope`
 2. `workspaceRegistry.create(path)`
-3. `ctx.agents.create({sessionId, meta:{cwd, agentPreset}, agentOptions, setup})`
+3. `ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions, setup })`（`agentOptions.model` 见 `core/agent/src/runtime-types.ts:35`，`ModelSelection.model` 见 `core/agent/src/types.ts:83`）
 4. `workspace.attachSession`
 5. `permissionPresets.set`
 6. `sessionTitle.rename`
@@ -230,7 +230,7 @@ GUI 侧对应 `sessionController.create({workspaceId|cwd, agentPreset})`（`pack
 
 | Projects 需要的能力 | 状态 | DSH 对应件 / 证据 | 备注 |
 |---|---|---|---|
-| 协调器 session 派发多个任务 | **部分** | `tool-subagent` + `ctx.subagents`；`webhook/src/session.ts:100-135` 的建 root session 流程；`sessionController.create` | 子代理受父 session 生命周期和深度约束；跨 session 的 Project 实体要自建 |
+| 协调器 session 派发多个任务 | **部分** | `tool-subagent` + `ctx.subagents`；`webhook/src/session.ts:93-155` 的建 root session 流程；`sessionController.create` | 子代理受父 session 生命周期和深度约束；跨 session 的 Project 实体要自建 |
 | Project / Task 数据模型与持久化 | **缺失（有底座）** | `storage-domain`、`workspace`、Team 任务板（参考） | 自建 schema |
 | 任务板、认领、依赖 | **部分** | `team/agent-team`（CAS 认领，限单棵树、共享 checkout） | 可借鉴，难以直接复用 |
 | 本地 worktree 隔离 | **现成（实验性）** | `experimental/worktree`、`create_worktree`、forge 的 New worktree 选项 | 不会在派发子代理时自动创建；没有清理和合并策略 |
@@ -240,7 +240,7 @@ GUI 侧对应 `sessionController.create({workspaceId|cwd, agentPreset})`（`pack
 | 由任意 ACP 代理（Gemini CLI 等）执行 | **部分** | `subagent-acp`（填 command/args） | 没有 Gemini 预设或测试；同上限制；不接 ACP terminal/fs |
 | 外部代理过程可视化（工具调用、diff、plan） | **缺失** | `subagent-acp/src/run.ts:420-428` 丢弃了非文本更新 | 需要把 ACP `session/update` 投影成 DSH child session 或自定义视图 |
 | 外部代理权限请求转人工审批 | **缺失** | 全部是自动应答（`run.ts:430-452`；Claude/Codex README） | 可以接 `user-approval` |
-| 按任务选模型（DSH agent） | **现成** | `modelSelection`/`agentOptions`、`selectModel`、`ctx.agents.create({agentOptions})` | — |
+| 按任务选模型（DSH agent） | **现成** | `modelSelection`/`agentOptions`、`selectModel`、`ctx.agents.create({ sessionId, signal, meta: { cwd, agentPreset }, agentOptions, setup })`（完整签名与行号见 Q3 创建流程） | — |
 | 按任务选模型（外部代理） | **部分** | profile 行固定 `model`；OAR 每个实例固定 | 需要动态起 provider 实例或改 provider |
 | 会话中途切模型 | **现成** | `session-controller/src/commands.ts:166`，`model-selection.ts:157` | — |
 | 多 provider 模型目录 | **现成** | `llm-pi-ai`（40+ provider + 自定义网关） | — |

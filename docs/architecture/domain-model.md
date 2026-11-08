@@ -71,7 +71,7 @@ erDiagram
 
 **Evidence**
 - `status ∈ {claimed, verified, failed}`；worker 只能写 `claimed`，只有 validator / CI 观察者能写 `verified` 或 `failed`。
-- 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`，且仅当 `evidence.commit_sha === attempt.head_sha` 时视为当前有效证据；worker 产生新提交推进 `attempt.head_sha` 后，旧 `verified` Evidence 自动失效（需重新验证）。无仓库 Attempt 的 `commit_sha` 允许为空。
+- 有仓库 Attempt 的 Evidence 必须记录生成该证据时的 `commit_sha`，且仅当 `evidence.commit_sha === attempt.head_sha` 时视为当前有效证据；worker 产生新提交推进 `attempt.head_sha` 后，旧 `verified` Evidence 自动失效（需重新验证）。`head_sha` 在 `task_report`、Run 退出、交接 / sync、PR head 变更与 `validate` 起止时刷新（见 runtime.md §3），不只在 validate 时更新。无仓库 Attempt 的 `commit_sha` 允许为空。
 
 **ContextItem**
 - `status ∈ {proposed, ratified, disputed, superseded}`；runbook 只有在关联 Attempt 存在当前有效的 `verified` Evidence 时才能从 `proposed` 转 `ratified`。

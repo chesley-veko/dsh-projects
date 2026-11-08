@@ -4,7 +4,7 @@
 
 ## 1. Engine：单写者与先存后做
 
-- `Engine` 是所有域对象的唯一写者，独占宿主机 `<dataDir>/projects.sqlite`（用 `proper-lockfile` 加进程锁，防止多实例并发打开）。命令同步执行，一个命令一个事务（`node:sqlite` + WAL + `synchronous=NORMAL`，嵌套 SAVEPOINT 的 `atomic()`）。写法沿用 dsh-superagent `src/app/store.ts`。
+- `Engine` 是所有域对象的唯一写者，独占宿主机 `<dataDir>/projects.sqlite`（用 `proper-lockfile` 加进程锁，防止多实例并发打开）。命令同步执行，一个命令一个事务（`node:sqlite` + WAL + `synchronous=FULL`（不降到 NORMAL：effect 在提交后执行，断电丢掉最后几个事务会与已执行的外部副作用（如 push）不一致；若日后为性能降级，必须以 `operationId` 幂等与 effect 回执对账为前提并写入 ADR），嵌套 SAVEPOINT 的 `atomic()`）。写法沿用 dsh-superagent `src/app/store.ts`。
 - 命令只做三件事：校验不变量、改表、入队 effect。副作用在**事务提交后**由 effect runner 执行。
 - `effect` 表携带 `lane_key`（串行域键）与 `state ('queued' | 'running')`：effect runner 认领时先在事务内原子更新 `state = 'running', claimed_at = now`，且**同一 `lane_key` 下同一时刻最多 1 个 `running` effect**，从根源消除慢操作（如 `pnpm install`）重入以及同 Attempt 跨类型副作用（如 `checkout.handoff` 与 `run.deliver` / `attempt.reclaim`）的并发冲突：
 
@@ -60,13 +60,14 @@
 2. 启动摘要（UI）列出：Task、仓库（无仓库项目显示「无代码仓库」）、基线分支、**执行者 · 模型 · 位置**、计费来源、检出路径、refs 新鲜度；refs 过期先提示刷新；位置不可用、执行者未安装或未登录则阻断并给出修复入口。
 3. 以下 3'–6' 步描述本地位置 + DSH 执行者；其他组合见 [execution.md](execution.md) §3–§4。
 3'. 有仓库项目由 `git` 在路径锁内创建 `<dataDir>/worktrees/<project>/<attempt>`，分支前缀由环境决定：本机 `agent/<task-id 小写>-<slug>`（如 `agent/you-4-staging-verify`），远程 sandbox `sandbox/<task-id 小写>-<slug>`，并记录初始 `head_sha`；无仓库项目直接创建受管空目录 `<dataDir>/workspaces/<project>/<attempt>`。
-4'. `Engine` 在创建 `Run` 记录时预先生成确定性的 `session_ref = "proj-worker-" + run_id`。`executor-host`（DSH 原生驱动）调用 `ctx.agents.create({ sessionId: run.session_ref, cwd, preset: 'dsh-projects-worker', origin: 'project-worker' })` 创建会话，并调用 `agent.session.append('model/selection', selection)` 写入会话级初始模型（不调用 `workspaceRegistry.create` 以免新增顶层工作区；不调用 `sessionController.selectModel` 以免覆盖用户的全局默认模型；左栏 `tree.ts` 过滤 `origin === 'project-worker'`，同时保持 `delegationDepth = 0` 使 worker 可正常使用 `subagent` 工具与文件上传）。
+4'. `Engine` 在创建 `Run` 记录时预先生成确定性的 `session_ref = "proj-worker-" + run_id`。`executor-host`（DSH 原生驱动）调用 `ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })` 创建会话，`setup` 中挂载 `dsh-projects-worker` preset，初始模型由 `agentOptions` 提供（不调用 `workspaceRegistry.create` 以免新增顶层工作区；不调用 `sessionController.selectModel` 以免覆盖用户的全局默认模型；左栏隐藏先用插件侧 `proj-worker-` 前缀 + 会话行 slot（上游 `origin` 补丁合入后再改为 `origin` 过滤），同时保持 `delegationDepth = 0` 使 worker 可正常使用 `subagent` 工具与文件上传）。
 5'. 首条消息包含：Task 原文（不经协调者转述）、检出说明（原始仓库、检出根目录、分支、「所有改动只在检出目录内」）、`INDEX.md`、以及相关 runbook 的相对路径（提示 worker 使用 `context_read(rel_path)` 按需读取，不传宿主机绝对路径）。
 6'. 环境变量清洗：复用宿主 `dsh-subprocess-local` 的黑名单凭据清洗（剥离父进程 `DSH_*` 与敏感凭据变量，保留 `HOME / PATH / USER / SSH_AUTH_SOCK / XDG_*` 与代理变量），再按次叠加注入该项目声明的环境变量。
 
 **结束与验证**
 - worker 调 `task_report(state, summary)` 声明 `done | blocked | failed`（所有执行者经 projects-mcp 拿到同一工具）。
 - `done` → 入队 `validate`：在运行所在位置跑验证命令（优先取仓库 `.dsh/environment.json` 的 `validate`，缺省回退至 `project_repo.validate_json` 或项目级默认设置），结果连同当前 `git rev-parse HEAD`（写入 `evidence.commit_sha` 并同步更新 `attempt.head_sha`）记入 `evidence` 表；退出码 0 只是必要条件，输出需匹配项目配置的通过判据（默认：退出码 0 且无失败用例计数）。
+- `attempt.head_sha` 刷新时机：worker `task_report`、Run 退出、`checkout.handoff` / `sync`、PR head 变更（`github.sync`）、`validate` 开始与结束时都读取 `git rev-parse HEAD` 并更新；`validate` 只把结果绑定到它开始时读到的 SHA，结束时 HEAD 已变则该 Evidence 立即视为过期。
 - 结果以合成消息回报协调者。
 
 **回收**

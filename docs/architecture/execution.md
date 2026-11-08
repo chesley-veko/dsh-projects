@@ -13,7 +13,7 @@
 ```mermaid
 flowchart LR
   Engine["Engine\n(单写者 / RunSpec)"] --> Host["Agent Host\n(executor-host 包)"]
-  Host -- dsh-native --> DSH["本地 DSH 会话\nctx.agents.create (origin:project-worker)"]
+  Host -- dsh-native --> DSH["本地 DSH 会话\nctx.agents.create (meta.cwd + agentOptions)"]
   Host -- acp/stdio --> L["本地子进程\nclaude-agent-acp / codex-acp\ngemini --acp / opencode acp"]
   Host -- acp/stdio over ssh / exec --> R["远端位置\n(SSH 主机 / Docker / 沙箱)\n同样的 ACP agent 或 dsh --profile acp"]
   L -. stdio RPC proxy .-> PM["projects-mcp 端点\n(主进程 Engine 内置)"]
@@ -73,13 +73,14 @@ interface ExecutorDriver {
 - `dsh-native`：直接映射为 DSH 会话的 `inbox` 投递（`mode='queue'` 走 `followup`，`mode='steer'` 走 `steer`）。
 - `acp`：ACP v1 的 `session/prompt` 是阻塞到本轮结束的同步 RPC，没有原生运行中 `steer`。`executor-host` 在 ACP 驱动内统一合成：
   - `mode='queue'`：在 `executor-host` 内存入队，等当前在途 `session/prompt` 返回后立即自动发送下一条 `session/prompt`；
-  - `mode='steer'`（含插话与 `question.answer`）：先向该会话发送 `session/cancel` 中断当前回合，等待在途 `session/prompt` 以 `stopReason='cancelled'` 返回后，立即发送携带新指令的 `session/prompt`。
+  - 外部执行者的默认模式为 `queue`；协调者 `run_send` 未指定时也按 `queue` 处理。
+  - `mode='steer'`（仅人显式「插话」或回答阻断型提问时）：先向该会话发送 `session/cancel` 中断当前回合，等待在途 `session/prompt` 以 `stopReason='cancelled'` 返回后，立即发送携带新指令的 `session/prompt`。注意：`cancel` 会打断进行中的工具调用（可能留下半写文件），运行视图需在插话前提示。
 
 ### 3.2 驱动清单
 
 | 执行者 | 本地 | 远端 | 选模型 | 续接 | 备注 |
 |---|---|---|---|---|---|
-| **DSH** | `dsh-native`：`ctx.agents.create({sessionId, cwd, preset, origin: 'project-worker'})` + `agent.session.append('model/selection', selection)` | `acp`：远端 `dsh --profile acp` | 是（`model/selection` 事件 / ACP `set_config_option`） | 是（ACP `session/resume`） | 本地运行保持 `delegationDepth=0` 的完整 DSH 会话（可用子代理与文件上传），不调用 `sessionController.selectModel` 以免篡改用户全局默认模型 |
+| **DSH** | `dsh-native`：`ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })` | `acp`：远端 `dsh --profile acp` | 是（`agentOptions` 初始模型 / ACP `set_config_option`） | 是（ACP `session/resume`） | 本地运行保持 `delegationDepth=0` 的完整 DSH 会话（可用子代理与文件上传），不调用 `sessionController.selectModel` 以免篡改用户全局默认模型 |
 | **Claude Code** | `acp`：`@agentclientprotocol/claude-agent-acp` | 同左（远端安装） | 是 | 是（会话文件在本地磁盘） | 远端必须 API Key（`--bare` + `ANTHROPIC_API_KEY`，`--hide-claude-auth`） |
 | **Codex** | `acp`：`@agentclientprotocol/codex-acp`（底层 app-server） | 同左 | 是（model、reasoning_effort） | 是 | 远端用 `CODEX_API_KEY` 按次注入 |
 | **Gemini CLI** | `acp`：`gemini --acp`（原生） | 同左 | 视版本 | 视版本 | 免费层已迁移到 Antigravity CLI，需确认用户账户类型 |
@@ -229,7 +230,7 @@ UI 在启动摘要和运行头显示计费来源：「本机 Claude 登录」或
 
 | 需要 | 复用 | 自建 |
 |---|---|---|
-| 本地 DSH 执行者 | `ctx.agents.create({sessionId, cwd, preset, origin: 'project-worker'})`、`agent.session.append('model/selection', ...)`、`sandbox-policy`、`permission-presets`、`user-approval` | 把会话绑到 Run；左栏过滤 `origin === 'project-worker'` |
+| 本地 DSH 执行者 | `ctx.agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions: { model }, setup })`、`sandbox-policy`、`permission-presets`、`user-approval` | 把会话绑到 Run；左栏过滤 `origin === 'project-worker'` |
 | 远端 DSH 执行者 | `dsh --profile acp`（`packages/acp/acp`） | 远端安装与启动 |
 | 外部执行者 | 配置格式对齐 `subagent-acp` | 完整 ACP client（保留事件、权限转人工、按次选模型、续接、合成 `steer`） |
 | worktree | `experimental/worktree` 的 create / restore | 路径锁、回收、preserved ref、与 Task 关联 |

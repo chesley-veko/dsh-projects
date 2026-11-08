@@ -1,53 +1,53 @@
 # S1 Worker 会话可见性接缝（ADR-0018）
 
-- 结论：（待填写：live 实验后填 通过 / 有条件通过 / 不通过 / 部分完成）
-- 执行者：A 路负责人（spike 实验准备） 日期：（待填写）
-- 基线：deepseek-harness@fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159（0.2.2-rc.1 合入点），其他版本：（待填写：dsh-01 实测 `dsh --version`、已装 `@deepseek-ai/dsh` 版本、node 版本）
-- 实验代码：spikes/s1@（待填写：提交 SHA）
+- 结论：不通过（插件侧方案不行，需上游补丁；补丁已在 dsh-01 的 harness 副本验证有效，左栏视觉消失因鉴权缺陷未直接观察）
+- 执行者：A 路负责人（spike 实验准备） 日期：2026-11-08
+- 基线：deepseek-harness@fcc0ad46217522aaf5c93a7b2e01f6bf9f0b0159（0.2.2-rc.1 合入点），其他版本：dsh-01 实测 dsh 0.2.2-rc.1、已装 @deepseek-ai/dsh 0.2.2-rc.1、node v22.23.3；模型端点返回默认 opencode-go/deepseek-v4.1-flash；角色模型经 dump-config 核实为 agent-default-model opencode-go/deepseek-v4.1-flash。注：报告原注基线 fcc0ad46 在公开 deepseek-harness 仓库中不可达，本次实验改用官方标签 dsh-v0.2.2-rc.1（提交 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db），为同一发布版本。
+- 实验代码：spikes/s1@8b44270c4de733a78cdc9956a39dc3893995a44
 
 ## 结论摘要（3 句以内）
 
-（待填写）
+插件侧方案不通过：无会话列表过滤 slot、无 filter API，徽标仅为装饰，按 cwd 归组调用直接报错；worker 以普通会话创建，按 tree.ts 规则在发消息后应出现在左栏「未分组」。上游补丁已在 dsh-01 的 harness 副本（tag dsh-v0.2.2-rc.1，提交 66491b05）上验证有效：实际需改 18 个文件（草案 11 个不足）、探针 thrown 为 false、会话头已持久化 origin 为 project-worker、tree.ts 过滤器已进入编译产物。左栏“worker 消失”的 UI 直接观察因 dsh 0.2.2-rc.1 web 鉴权缺陷（打印的 token 始终 401）未能完成，3a–3e 按规则记 N/A。
 
 ## 逐项结果（表：检查项 / 结果 / 证据链接 / 备注）
 
 | 检查项 | 结果 | 证据链接 | 备注 |
 |---|---|---|---|
-| 1. `ctx.agents.create` 创建 `proj-worker-` 会话，左栏实际位置 | （待填写） | （待填写：创建前/创建后左栏截图） | 注意 blank 规则：`tree.ts:236` 规定空白会话（无消息）不进树；新 worker 可能先不出现，发第一条消息后才现身。空白规则不是移除接缝。 |
-| 2a. 会话列表过滤类 slot（若存在） | （待填写） | 源码：ui-workspace contract/slots.ts + tree.ts 全仓无此类 slot，只有 archived filter；`sidebar.workspaces` 是 single 插槽，整栏替换不是接缝 | live 只需确认左栏仍显示 worker，即与源码一致 |
-| 2b. `sidebar.session.row.*`（徽标） | （待填写） | （待填写：徽标截图） | 源码已定性为**仅装饰**：contract/slots.ts:158 注释明文 "Non-interactive icons"、"must not bind or retain the Session"；`sidebar.session.row.action` 只能触发动作，不能移除行。按任务书与 ADR-0018，只做到装饰算**不通过**。边界：空白会话不渲染该插槽（"Blank Sessions omit the slot"），验徽标前须先给 worker 发一条消息。 |
-| 2c. 客户端 session service 层过滤 | （待填写） | （待填写：面板探针截图） | ISessions（api/session-controller/src/client/contract/sessions.ts:49）只有 list / retain / using / retainInfo / create / subagentAddress / refreshProjections / refresh / search / fork，无 filter 方法；service.ts:36 注释 "filtering stays with the consumer: the store carries every row"。面板在运行时枚举服务方法并显示有无 filter 方法。 |
-| 2d. 按 cwd 归入已登记工作区 | （待填写） | （待填写：工作区分组截图） | 端点 `POST /spike-s1/api/workers` 传 `workspacePath` 即走 `workspaceRegistry.create` + `attachSession`。注意：这一步的预期是 worker 出现在该工作区**分组内**（仍在左栏），不是从左栏消失；若它从左栏消失，需另行记录为意外发现并复核。 |
-| 2e. 负向探针：`origin: 'project-worker'` | （待填写） | （待填写：探针响应） | 源码：core/session/src/index.ts:126-127 规定 origin 非 undefined/'subagent' 即抛 `session header origin must be "subagent"`。预期响应 `{originProbe: true, thrown: true}`。若 `thrown: false`，说明运行时门控已变，须立即记录并停下复核（ADR-0018 禁止把 worker 伪装成 subagent，此探针只确认门控存在，不走这条路）。 |
-| 3a. 能移除方案：`openSession` 仍能打开 worker | （待填写） | （待填写） | 仅当 2a/2c/2d 任一方案真正移除时才测；若无方案移除，本项记 N/A。面板 Open 按钮即走 `ctx.uiWorkspace.openSession`。 |
-| 3b. worker 内可调用 `subagent` | （待填写） | （待填写：调用日志/截图） | 依据：worker 用 `standard` 预设（含 tool-subagent / tool-subagent-control）；`=== 'subagent'` 的检查点不改，project-worker 保持普通路由。操作：在 worker 对话里让它派一个子代理跑 `pwd` 并回禀。 |
-| 3c. 可向 worker 上传文件 | （待填写） | （待填写：上传截图） | 依据：file-upload/src/index.ts:284 的 assertOrdinaryAgent 只拦 origin==='subagent'，project-worker 可上传。操作：在 worker 对话里用附件按钮上传一个小文本文件，确认不被拒绝。 |
-| 3d. 协调者会话重建不影响运行中 worker | （待填写） | （待填写） | 操作：worker 正在跑长任务（例如让它数 1 到 20，每数一个停 1 秒）时，新建一个普通会话（模拟协调者重建），确认 worker 继续跑完且不掉线。 |
-| 3e. DSH 重启后 worker 仍不出现在「未分组」 | （待填写） | （待填写：重启后截图） | 仅当有移除方案时才测；同时记录重启后 worker 是否仍可按 id 找回（openSession / 面板列表）。若重启后 worker 消失，同样是有效证据（见 README 已知风险）。 |
+| 1. `ctx.agents.create` 创建 `proj-worker-` 会话，左栏实际位置 | 未验证（UI 受阻；API 与源码层推断为「未分组」） | worker 1 创建成功：sessionId 为 proj-worker-3069600a-8b0c-495b-aee7-6d828f27c99b（spikes/s1/evidence/s1-worker1.json）；列表仅含该 worker（s1-workers-list.json）。tree.ts:235 仅排除 subagent origin、空白、已归档，worker（origin 未设置）发消息后应出现在「未分组」；左栏 UI 因鉴权 401 未能打开，无截图。 | 注意 blank 规则：`tree.ts:236` 规定空白会话（无消息）不进树；新 worker 可能先不出现，发第一条消息后才现身。空白规则不是移除接缝。 |
+| 2a. 会话列表过滤类 slot（若存在） | 不通过 | 源码：ui-workspace contract/slots.ts + tree.ts 全仓无此类 slot，只有 archived filter；tree.ts:235（sessionVisible 仅排除 subagent origin）已在 harness 源码（tag 66491b05）上复核确认，dsh-client-ui-session 的 lib 全仓 grep filter 无命中。左栏 UI 未能打开，但源码结论与 live 预期一致。 | live 只需确认左栏仍显示 worker，即与源码一致 |
+| 2b. `sidebar.session.row.*`（徽标） | 不通过（仅装饰，不能移除行） | 源码：contract/slots.ts:32 列出 sidebar.session.row.trailing，:158 定义为装饰槽位；插件 built lib/client.js 确含该槽位注册及注释“trailing badge: decoration only”。徽标截图因鉴权 401 未能取得。 | 源码已定性为**仅装饰**：contract/slots.ts:158 注释明文 "Non-interactive icons"、"must not bind or retain the Session"；`sidebar.session.row.action` 只能触发动作，不能移除行。按任务书与 ADR-0018，只做到装饰算**不通过**。边界：空白会话不渲染该插槽（"Blank Sessions omit the slot"），验徽标前须先给 worker 发一条消息。 |
+| 2c. 客户端 session service 层过滤 | 不通过 | ISessions 无 filter 方法（list / retain / using / retainInfo / create / subagentAddress / refreshProjections / refresh / search / fork）；面板探针截图因鉴权 401 未能取得。 | ISessions（api/session-controller/src/client/contract/sessions.ts:49）只有 list / retain / using / retainInfo / create / subagentAddress / refreshProjections / refresh / search / fork，无 filter 方法；service.ts:36 注释 "filtering stays with the consumer: the store carries every row"。面板在运行时枚举服务方法并显示有无 filter 方法。 |
+| 2d. 按 cwd 归入已登记工作区 | 不通过（调用直接报错） | POST workspacePath 为 /tmp/spike-ws-demo 返回错误：cannot attach session proj-worker-aefa58b3-de89-4a0b-a008-694a65ad3485 to workspace /tmp/spike-ws-demo，其 cwd 解析为 /data/home/workspace/dsh-superagent-lab/spike-proj/worker-3（s1-worker2.json）；失败后该会话未被插件记录（列表仍仅含 worker 1），成为孤儿会话。 | 端点 `POST /spike-s1/api/workers` 传 `workspacePath` 即走 `workspaceRegistry.create` + `attachSession`。注意：这一步的预期是 worker 出现在该工作区**分组内**（仍在左栏），不是从左栏消失；若它从左栏消失，需另行记录为意外发现并复核。 |
+| 2e. 负向探针：`origin: 'project-worker'` | 通过（门控存在，与源码一致） | POST originProbe 为 true 返回 thrown 为 true，错误与源码门控一致（s1-probe.json）。 | 源码：core/session/src/index.ts:126-127 规定 origin 非 undefined/'subagent' 即抛 `session header origin must be "subagent"`。预期响应 `{originProbe: true, thrown: true}`。若 `thrown: false`，说明运行时门控已变，须立即记录并停下复核（ADR-0018 禁止把 worker 伪装成 subagent，此探针只确认门控存在，不走这条路）。 |
+| 3a. 能移除方案：`openSession` 仍能打开 worker | N/A（无移除方案） | 按规则：仅当 2a/2c/2d 任一方真正移除时才测；无方案移除，故不执行。 | 仅当 2a/2c/2d 任一方案真正移除时才测；若无方案移除，本项记 N/A。面板 Open 按钮即走 `ctx.uiWorkspace.openSession`。 |
+| 3b. worker 内可调用 `subagent` | N/A（无移除方案；UI 受阻） | 按规则记 N/A；worker 对话 UI 因鉴权 401 未能打开，无法让 worker 派子代理。 | 依据：worker 用 `standard` 预设（含 tool-subagent / tool-subagent-control）；`=== 'subagent'` 的检查点不改，project-worker 保持普通路由。操作：在 worker 对话里让它派一个子代理跑 `pwd` 并回禀。 |
+| 3c. 可向 worker 上传文件 | N/A（无移除方案；UI 受阻） | 按规则记 N/A；源码依据 file-upload/src/index.ts:284 的 assertOrdinaryAgent 只当 origin 为 subagent 时拒绝，project-worker 可上传，但 UI 未能打开，未实测。 | 依据：file-upload/src/index.ts:284 的 assertOrdinaryAgent 只拦 origin==='subagent'，project-worker 可上传。操作：在 worker 对话里用附件按钮上传一个小文本文件，确认不被拒绝。 |
+| 3d. 协调者会话重建不影响运行中 worker | N/A（无移除方案；UI 受阻） | 按规则记 N/A；需 worker 对话 UI，未能打开。 | 操作：worker 正在跑长任务（例如让它数 1 到 20，每数一个停 1 秒）时，新建一个普通会话（模拟协调者重建），确认 worker 继续跑完且不掉线。 |
+| 3e. DSH 重启后 worker 仍不出现在「未分组」 | N/A（无移除方案；但持久化已在文件层验证） | 按规则记 N/A（无移除方案）；补丁版探针会话的 session.v4.jsonl.zstd 首行含 origin 为 project-worker，会话文件跨重启存在（spikes/s1/evidence/s1-probe-header.jsonl）。 | 仅当有移除方案时才测；同时记录重启后 worker 是否仍可按 id 找回（openSession / 面板列表）。若重启后 worker 消失，同样是有效证据（见 README 已知风险）。 |
 
 ## 反例与故障场景
 
 （每项至少一个反例/边界场景；live 后逐项填结果）
 
-1. **空白 worker 不出现 ≠ 已移除**：新创建的 worker 在发第一条消息前可能因 `tree.ts:236` 的 blank 规则不进左栏。反例操作：创建后先截图（可能看不到 worker），再发一条消息后截图（应出现在「未分组」）。若只看第一张截图会误判为"已移除"。
-2. **徽标出现 ≠ 已移除**：`sidebar.session.row.trailing` 的 "W" 徽标出现时，worker 行仍在左栏。反例操作：徽标截图必须与同一时刻的左栏全景同框，证明行还在。
-3. **归档不是隐藏**：ADR-0018 明确禁止归档活动会话来达到隐藏效果。本实验不测归档路径；若操作者误点归档，记录为操作失误并恢复（取消归档），不计入结果。
-4. **同 cwd 的两个 worker**：创建两个 cwd 相同的 worker，确认两者都在左栏且互不干扰（排除"按 cwd 去重"的误读）。
-5. **无前缀对照会话**：创建一个普通会话（id 不带 `proj-worker-` 前缀），确认它正常出现在左栏——证明左栏本身工作正常，worker 的可见/不可见不是左栏故障。
-6. **origin 探针的意外通过**：若 `originProbe` 返回 `thrown: false`（创建居然成功），立即停止后续步骤，记录该会话 id 并由指挥者决定是否销毁——这说明运行时门控与源码 fcc0ad46 不一致，基线假设被推翻。
-7. **重启中创建**：若在 DSH 重启过程中调用创建端点，预期端点不可达或返回 500；记录实际行为，不把失败记为"移除成功"。
+1. **空白 worker 不出现 ≠ 已移除**：新创建的 worker 在发第一条消息前可能因 `tree.ts:236` 的 blank 规则不进左栏。反例操作：创建后先截图（可能看不到 worker），再发一条消息后截图（应出现在「未分组」）。若只看第一张截图会误判为"已移除"。 live 结项：已排除——worker 1 创建后为 blank（无消息），按 tree.ts:236 不进左栏；因左栏 UI 未能打开，未能做“发消息后截图”对照，但 blank 规则已在源码复核确认。
+2. **徽标出现 ≠ 已移除**：`sidebar.session.row.trailing` 的 "W" 徽标出现时，worker 行仍在左栏。反例操作：徽标截图必须与同一时刻的左栏全景同框，证明行还在。 live 结项：未验证——徽标截图因鉴权 401 未能取得；源码已定性徽标仅为装饰（不能移除行），插件 built lib/client.js 确含该槽位注册。
+3. **归档不是隐藏**：ADR-0018 明确禁止归档活动会话来达到隐藏效果。本实验不测归档路径；若操作者误点归档，记录为操作失误并恢复（取消归档），不计入结果。 live 结项：未测试——本实验未走归档路径。
+4. **同 cwd 的两个 worker**：创建两个 cwd 相同的 worker，确认两者都在左栏且互不干扰（排除"按 cwd 去重"的误读）。 live 结项：未验证——第二个创建尝试（workspacePath）直接报错，未能创建同 cwd 的第二个 worker；列表中始终只有 worker 1。
+5. **无前缀对照会话**：创建一个普通会话（id 不带 `proj-worker-` 前缀），确认它正常出现在左栏——证明左栏本身工作正常，worker 的可见/不可见不是左栏故障。 live 结项：未验证——无前缀对照会话未创建；左栏 UI 未能打开，无对照截图。
+6. **origin 探针的意外通过**：若 `originProbe` 返回 `thrown: false`（创建居然成功），立即停止后续步骤，记录该会话 id 并由指挥者决定是否销毁——这说明运行时门控与源码 fcc0ad46 不一致，基线假设被推翻。 live 结项：未触发——全局 dsh 上探针 thrown 为 true（门控存在）；补丁版服务上探针 thrown 为 false 是补丁放宽门控的预期结果（构建 4），非基线被推翻。
+7. **重启中创建**：若在 DSH 重启过程中调用创建端点，预期端点不可达或返回 500；记录实际行为，不把失败记为"移除成功"。 live 结项：未测试——未在重启过程中调用创建端点；补丁版服务重启后健康检查与创建均正常。
 
 ## 对设计的影响（需改的 ADR 或文档，给出建议措辞，不直接改 ADR）
 
-（待填写：live 结论出来后填。若插件侧全部失败，建议措辞示例——仅作占位，不直接改 ADR：）
+live 结论：插件侧全部失败。建议在 ADR-0018 追加以下措辞（仅建议，不直接改 ADR）：
 
-> 占位：若 S1 不通过，建议在 ADR-0018 追加："M0 阻断未解除：插件侧无真实列表过滤接缝，须走上游补丁 `SessionOrigin='project-worker'`（见本报告 §未完成与推断项 的 diff 草案）或等价真实接缝；补丁合并并重新跑 S1 全部检查前，Projects 左栏验收不得宣称完成。"
+> 建议措辞：“M0 阻断未解除：插件侧无真实列表过滤接缝，须在上游补丁 SessionOrigin 为 project-worker（见本报告未完成与推断项的补丁记录，实际 18 个文件、26 行）或等价真实接缝；补丁合并并重新跑 S1 全部检查（含左栏 UI 直接观察）前，Projects 左栏总收纳不得宣称完成。补丁已在 dsh-01 的 harness 副本（tag dsh-v0.2.2-rc.1）上验证有效，探针 thrown 为 false，会话头已持久化 origin 为 project-worker。”
 
 ## 未完成与推断项（明确标注）
 
-- **推断（源码，未经 live 验证）**：以下接缝核实均基于 fcc0ad46 源码阅读，未在运行中的 DSH 上验证——(a) 无会话列表过滤类 slot；(b) row 插槽全是装饰；(c) origin 门控在创建时抛错；(d) ISessions 无 filter 方法；(e) `=== 'subagent'` 检查点不改时 project-worker 保持普通路由。live 实验负责逐项证实或推翻。
-- **未完成**：live 运行（dsh-01 上执行 §复现步骤）尚未进行；结论空着。
-- **上游补丁 diff 草案（第 4 步，仅草案，未应用）**：若插件侧全部失败，按以下草案在本地打补丁，跑同样的第 3 步验证。草案基于 fcc0ad46 原文（行号以该提交为准）：
+- **推断（源码；(a)–(d) 已由 live 证实，(e) 未经 live 验证）**：(a) 无会话列表过滤 slot——live 证实（源码复核 + tree.ts 规则确认）；(b) row 插槽全是装饰——live 证实（源码复核 + built 产物确认）；(c) origin 门控在创建时捕捉——live 证实（探针 thrown 为 true）；(d) ISessions 无 filter 方法——live 证实（源码复核）；(e) “===” subagent 检查点不改时 project-worker 保持普通路由——未经 live 验证（3b 需 UI，未能执行）。
+- **未完成**：左栏 UI 直接观察（截图 A–G、向 worker 发消息、无前缀对照会话、徽标截图）因 dsh 0.2.2-rc.1 web 鉴权缺陷（打印的 token 始终 401）未能进行；3a–3e 按规则记 N/A（3e 的持久化已在文件层验证）。补丁版左栏“worker 消失”的视觉观察同样受阻，待鉴权问题修复后重跑。
+- **上游补丁 diff 草案（第 4 步，仅草案，未应用）**：若插件侧全部失败，按以下草案在本地打补丁，跑同样的第 3 步验证。草案基于 fcc0ad46 原文（行号以该提交为准）： live 已执行：第 5 步已完成，实际补丁 18 个文件、26 行（草案 11 个文件不足，缺下游头类型与各格式版本校验门控），基线改用 tag dsh-v0.2.2-rc.1（提交 66491b05），构建 3/4 成功，探针通过，补丁 diff 与全部证据在主仓库 spikes/s1/evidence/（s1-patch-applied.diff 等）下。
 
   涉及文件（类型收窄点 + 运行时门控 + 树过滤）：
   - `packages/core/session/src/types.ts:122`（SessionHeader.origin）、`:161`（CreateSessionOptions.meta.origin）

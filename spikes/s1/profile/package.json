@@ -1,0 +1,1 @@
+{"dependencies":{"dsh-spike-s1":"link:/data/home/workspace/dsh-projects/spikes/s1/dsh-spike-s1"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dsh-spike-s1"]}},"name":"dsh-profile-spike-s1","private":true}

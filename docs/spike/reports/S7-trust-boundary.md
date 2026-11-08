@@ -2,7 +2,7 @@
 - 结论：未完成（待 live 运行）
 - 执行者：D 路（S7 执行信任边界）    日期：2026-11-08（准备完成；live 运行日期待填）
 - 基线：deepseek-harness@fcc0ad46，dsh-superagent-prototype@8c32a9d，其他版本：待 live 记录（DSH、Node、操作系统、sandbox runner）
-- 实验代码：spike/s7-trust-boundary@43a662d
+- 实验代码：spike/s7-trust-boundary@b2aa72b（材料提交；报告草稿在同分支后续提交）
 
 ## 结论摘要（3 句以内）
 （待 live 运行后填写。）
@@ -91,7 +91,7 @@ approval 卡住、runner 不可识别、机器中途暂停等，记录实际行�
 
 ## 复现步骤
 
-1. 取材料：`spike/s7-trust-boundary@43a662d`（分支本地提交，未 push；
+1. 取材料：`spike/s7-trust-boundary@b2aa72b`（分支本地提交，未 push；
    传到 dsh-01 的方式见 `spikes/s7/RUNBOOK.md` §0）。
 2. 按 `spikes/s7/RUNBOOK.md` §1 记录环境，§3 依次跑条件 A、B、D，
    §4 做宿主侧 `/tmp` 核查，§5 填矩阵。
